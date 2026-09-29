@@ -4,7 +4,7 @@ const money=v=>Number(v||0).toLocaleString("pt-BR",{style:"currency",currency:"B
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function carregarCRM(){
  const [{data:vs,error:ve},{data:ls,error:le}]=await Promise.all([
-  db.from("vendedores").select("id,nome,email,funcao,ativo,recebe_leads").order("nome"),
+  db.from("vendedores").select("id,nome,email,telefone,funcao,ativo,recebe_leads,ordem_distribuicao,user_id").order("nome"),
   db.from("leads").select("id,nome,telefone,email,projeto,valor_estimado,origem,etapa,vendedor_id,parceiro_id,observacoes,created_at").order("created_at",{ascending:false})
  ]);
  if(ve||le){console.error(ve||le);alert("Não foi possível carregar os dados do CRM: "+(ve||le).message);return}
@@ -25,7 +25,7 @@ function render(){
  document.querySelector("#actions").innerHTML='<div class="action"><b>Retornar leads novos</b><span>'+leads.filter(l=>l.stage==="Novo lead").length+' contato(s) aguardando atendimento</span></div><div class="action"><b>Negociações abertas</b><span>'+leads.filter(l=>l.stage==="Negociação").length+' oportunidade(s)</span></div><div class="action"><b>Banco conectado</b><span>Leads e etapas salvos no Supabase</span></div>';
  drawBoard();
  document.querySelector("#rows").innerHTML=leads.map(l=>'<tr><td><b>'+esc(l.name)+'</b></td><td>'+esc(l.phone)+'</td><td>'+esc(l.project)+'</td><td>'+esc(l.stage)+'</td><td>'+esc(l.seller)+'</td><td><b>'+money(l.value)+'</b></td></tr>').join("");
- document.querySelector("#team").innerHTML=sellers.map(s=>'<div class="person"><b>'+esc(s.nome)+'</b><span>'+esc(s.funcao||"Consultor de vendas")+'</span><span>'+leads.filter(l=>l.sellerId===s.id&&!["Fechamento","Perdido"].includes(l.stage)).length+' oportunidades ativas</span><span>'+(s.recebe_leads?"Recebe novos leads":"Distribuição automática pausada")+'</span></div>').join("");
+ document.querySelector("#team").innerHTML=sellers.map(s=>'<div class="person"><b>'+esc(s.nome)+'</b><span>'+esc(s.funcao||"Consultor de vendas")+'</span><span>'+esc(s.email||"Sem e-mail")+'</span><span><i class="statusdot '+(s.ativo?"active":"")+'"></i>'+(s.ativo?"Ativo":"Inativo")+'</span><span>'+leads.filter(l=>l.sellerId===s.id&&!["Fechamento","Perdido"].includes(l.stage)).length+' oportunidades ativas</span><div class="seller-actions"><button class="mini '+(s.recebe_leads?"on":"off")+'" data-recebe="'+s.id+'">'+(s.recebe_leads?"Recebe leads":"Pausado p/ novos leads")+'</button><button class="mini" data-ativo="'+s.id+'">'+(s.ativo?"Desativar":"Ativar")+'</button></div></div>').join("");document.querySelectorAll("[data-recebe]").forEach(b=>b.onclick=()=>alternarVendedor(Number(b.dataset.recebe),"recebe_leads"));document.querySelectorAll("[data-ativo]").forEach(b=>b.onclick=()=>alternarVendedor(Number(b.dataset.ativo),"ativo"));
 }
 function drawBoard(){
  let q=(document.querySelector("#search").value||"").toLowerCase(),sf=document.querySelector("#seller").value;
@@ -51,3 +51,9 @@ document.querySelector("#form").onsubmit=async e=>{
 };
 async function iniciarDados(){const {data:{user}}=await db.auth.getUser();if(!user)return;const {data:v}=await db.from("vendedores").select("id").eq("user_id",user.id).maybeSingle();currentSellerId=v?.id||null;await carregarCRM()}
 db.auth.onAuthStateChange((event,session)=>{if(session&&(event==="SIGNED_IN"||event==="INITIAL_SESSION"))setTimeout(iniciarDados,0)});
+
+async function alternarVendedor(id,campo){const s=sellers.find(x=>x.id===id);if(!s)return;const valor=!s[campo];const {error}=await db.from("vendedores").update({[campo]:valor}).eq("id",id);if(error){alert("Não foi possível atualizar o vendedor: "+error.message);return}await carregarCRM()}
+const sellerModal=document.querySelector("#sellerModal"),sellerForm=document.querySelector("#sellerForm");
+document.querySelector("#novoVendedor").onclick=()=>sellerModal.showModal();
+document.querySelector("#closeSeller").onclick=()=>sellerModal.close();
+sellerForm.onsubmit=async e=>{e.preventDefault();const btn=e.target.querySelector('button[type="submit"]');btn.disabled=true;btn.textContent="Salvando...";try{const d=Object.fromEntries(new FormData(e.target));const payload={nome:d.nome.trim(),email:d.email.trim()||null,telefone:d.telefone.trim()||null,funcao:d.funcao.trim()||"Consultor de vendas",ativo:true,recebe_leads:d.recebe_leads==="on"};const {error}=await db.from("vendedores").insert(payload);if(error)throw error;sellerModal.close();e.target.reset();e.target.elements.funcao.value="Consultor de vendas";await carregarCRM()}catch(err){alert("Não foi possível cadastrar o vendedor: "+err.message)}finally{btn.disabled=false;btn.textContent="Salvar vendedor"}};
