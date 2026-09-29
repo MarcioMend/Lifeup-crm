@@ -16,9 +16,10 @@ async function carregarCRM(){
  preencherVendedores();render();
 }
 function preencherVendedores(){
- const a=document.querySelector("#seller"),b=document.querySelector("#seller2");a.innerHTML='<option value="">Todos os vendedores</option>';b.innerHTML="";
+ const a=document.querySelector("#seller"),b=document.querySelector("#seller2"),stage2=document.querySelector("#stage2");a.innerHTML='<option value="">Todos os vendedores</option>';b.innerHTML="";
  sellers.filter(s=>s.ativo).forEach(s=>{a.add(new Option(s.nome,String(s.id)));b.add(new Option(s.nome,String(s.id)))});
  if(currentSellerId&&sellers.some(s=>s.id===currentSellerId))b.value=String(currentSellerId);
+ if(stage2){stage2.innerHTML=stages.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join("");stage2.value="Novo lead"}
 }
 function render(){
  const open=leads.filter(l=>!["Fechamento","Perdido","Arquivado"].includes(l.stage)),total=open.reduce((a,b)=>a+b.value,0),closed=leads.filter(l=>l.stage==="Fechamento").reduce((a,b)=>a+b.value,0);
@@ -47,7 +48,7 @@ document.querySelector("#form").onsubmit=async e=>{
  try{
   let d=Object.fromEntries(new FormData(e.target)),partnerId=null;
   if(d.source==="Parceiro indicador"&&d.partner.trim()){let {data:p,error:pe}=await db.from("parceiros").select("id").ilike("nome",d.partner.trim()).limit(1);if(pe)throw pe;if(p&&p.length)partnerId=p[0].id;else{let {data:np,error:ne}=await db.from("parceiros").insert({nome:d.partner.trim(),ativo:true}).select("id").single();if(ne)throw ne;partnerId=np.id}}
-  const payload={nome:d.name.trim(),telefone:d.phone||null,projeto:d.project||null,valor_estimado:Number(d.value||0),origem:d.source,parceiro_id:partnerId,etapa:"Novo lead",vendedor_id:d.seller?Number(d.seller):currentSellerId};
+  const payload={nome:d.name.trim(),telefone:d.phone||null,projeto:d.project||null,valor_estimado:Number(d.value||0),origem:d.source,parceiro_id:partnerId,etapa:d.stage||"Novo lead",vendedor_id:d.seller?Number(d.seller):currentSellerId};
   const {error}=await db.from("leads").insert(payload);if(error)throw error;
   modal.close();e.target.reset();partnerField.style.display="none";partner.required=false;await carregarCRM();
  }catch(err){alert("Não foi possível salvar o lead: "+err.message)}finally{btn.disabled=false;btn.textContent="Salvar lead"}
