@@ -7,3 +7,5 @@
 
 /* Ações de edição de lead */
 .modal-actions{display:flex;justify-content:space-between;gap:12px;margin-top:18px}.danger{border:1px solid #a33;background:transparent;color:#a33;border-radius:10px;padding:10px 16px;cursor:pointer}dialog textarea{resize:vertical;min-height:76px}
+
+.card.prazo-ok{border:2px solid #2e9d52;box-shadow:0 0 0 1px rgba(46,157,82,.08)}.card.prazo-atencao{border:2px solid #e0ad19;box-shadow:0 0 0 1px rgba(224,173,25,.08)}.card.prazo-atrasado{border:2px solid #d64545;box-shadow:0 0 0 1px rgba(214,69,69,.08)}
