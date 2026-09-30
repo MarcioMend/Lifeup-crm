@@ -31,9 +31,23 @@ function render(){
  document.querySelector("#rows").innerHTML=leads.map(l=>'<tr><td><b>'+esc(l.name)+'</b></td><td>'+esc(l.phone)+'</td><td>'+esc(l.project)+'</td><td>'+esc(l.stage)+'</td><td>'+esc(l.seller)+'</td><td><b>'+money(l.value)+'</b></td></tr>').join("");
  document.querySelector("#team").innerHTML=sellers.map(s=>'<div class="person"><b>'+esc(s.nome)+'</b><span>'+esc(s.funcao||"Consultor de vendas")+'</span><span>'+esc(s.email||"Sem e-mail")+'</span><span><i class="statusdot '+(s.ativo?"active":"")+'"></i>'+(s.ativo?"Ativo":"Inativo")+'</span><span>'+leads.filter(l=>l.sellerId===s.id&&!["Fechamento","Perdido","Arquivado"].includes(l.stage)).length+' oportunidades ativas</span><div class="seller-actions"><button class="mini '+(s.recebe_leads?"on":"off")+'" data-recebe="'+s.id+'">'+(s.recebe_leads?"Recebe leads":"Pausado p/ novos leads")+'</button><button class="mini" data-ativo="'+s.id+'">'+(s.ativo?"Desativar":"Ativar")+'</button></div></div>').join("");if(!currentProfile||!["administrador","gestor"].includes(currentProfile.tipo)){document.querySelectorAll(".seller-actions").forEach(x=>x.remove())}document.querySelectorAll("[data-recebe]").forEach(b=>b.onclick=()=>alternarVendedor(Number(b.dataset.recebe),"recebe_leads"));document.querySelectorAll("[data-ativo]").forEach(b=>b.onclick=()=>alternarVendedor(Number(b.dataset.ativo),"ativo"));
 }
+const prazoEtapas={
+ "Novo lead":{verde:2,amarelo:4},
+ "Brifing de projeto e invest":{verde:24,amarelo:48},
+ "Proposta 1":{verde:48,amarelo:72},
+ "Visita / Medição":{verde:72,amarelo:120},
+ "Projeto e proposta 2":{verde:72,amarelo:120},
+ "Negociação":{verde:120,amarelo:240}
+};
+function statusPrazo(l){
+ const p=prazoEtapas[l.stage];if(!p)return "";
+ const base=l.updated_at||l.created_at;if(!base)return "prazo-ok";
+ const horas=(Date.now()-new Date(base).getTime())/3600000;
+ return horas<=p.verde?"prazo-ok":horas<=p.amarelo?"prazo-atencao":"prazo-atrasado";
+}
 function drawBoard(){
  let q=(document.querySelector("#search").value||"").toLowerCase(),sf=document.querySelector("#seller").value;
- document.querySelector("#board").innerHTML=stages.map(s=>{let a=leads.filter(l=>l.stage===s&&(!sf||String(l.sellerId)===sf)&&(!q||(l.name+l.project+l.phone).toLowerCase().includes(q)));return '<div class="col" data-stage="'+esc(s)+'"><div class="colhead"><span>'+esc(s)+'</span><span class="count">'+a.length+'</span></div>'+a.map(l=>{let espera=s==="Stand-by"&&l.updated_at?Math.max(0,Math.floor((Date.now()-new Date(l.updated_at).getTime())/86400000)):null;let aviso=espera!==null?'<div class="standby-age">Em espera há '+espera+' dia(s) · arquiva em '+Math.max(0,180-espera)+' dia(s)</div>':"";return '<div class="card" draggable="true" data-id="'+l.id+'"><h4>'+esc(l.name)+'</h4><p>'+esc(l.project)+'</p><strong>'+money(l.value)+'</strong>'+aviso+'<footer><span>'+esc(l.source)+'</span><span>'+esc((l.seller||"Sem responsável").split(" ")[0])+'</span></footer></div>'}).join("")+'</div>'}).join("");
+ document.querySelector("#board").innerHTML=stages.map(s=>{let a=leads.filter(l=>l.stage===s&&(!sf||String(l.sellerId)===sf)&&(!q||(l.name+l.project+l.phone).toLowerCase().includes(q)));return '<div class="col" data-stage="'+esc(s)+'"><div class="colhead"><span>'+esc(s)+'</span><span class="count">'+a.length+'</span></div>'+a.map(l=>{let espera=s==="Stand-by"&&l.updated_at?Math.max(0,Math.floor((Date.now()-new Date(l.updated_at).getTime())/86400000)):null;let aviso=espera!==null?'<div class="standby-age">Em espera há '+espera+' dia(s) · arquiva em '+Math.max(0,180-espera)+' dia(s)</div>':"";return '<div class="card '+statusPrazo(l)+'" draggable="true" data-id="'+l.id+'"><h4>'+esc(l.name)+'</h4><p>'+esc(l.project)+'</p><strong>'+money(l.value)+'</strong>'+aviso+'<footer><span>'+esc(l.source)+'</span><span>'+esc((l.seller||"Sem responsável").split(" ")[0])+'</span></footer></div>'}).join("")+'</div>'}).join("");
  document.querySelectorAll(".card").forEach(c=>{c.ondragstart=e=>e.dataTransfer.setData("text",c.dataset.id);c.onclick=()=>abrirEdicaoLead(Number(c.dataset.id));c.title="Clique para abrir e editar";});
  document.querySelectorAll(".col").forEach(c=>{c.ondragover=e=>e.preventDefault();c.ondrop=async e=>{let id=Number(e.dataTransfer.getData("text")),l=leads.find(x=>x.id===id);if(!l||l.stage===c.dataset.stage)return;const old=l.stage;l.stage=c.dataset.stage;render();const {error}=await db.from("leads").update({etapa:l.stage}).eq("id",id);if(error){l.stage=old;render();alert("Não foi possível mover o lead: "+error.message)}}});
 }
