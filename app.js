@@ -5,7 +5,7 @@ const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 async function carregarCRM(){
  const [{data:vs,error:ve},{data:ls,error:le}]=await Promise.all([
   db.from("vendedores").select("id,nome,email,telefone,funcao,ativo,recebe_leads,ordem_distribuicao,user_id").order("nome"),
-  db.from("leads").select("id,nome,telefone,email,projeto,valor_estimado,origem,etapa,vendedor_id,parceiro_id,observacoes,created_at,updated_at").order("created_at",{ascending:false})
+  db.from("leads").select("id,nome,telefone,email,projeto,valor_estimado,origem,etapa,vendedor_id,parceiro_id,observacoes,created_at,updated_at,entrou_na_etapa_em").order("created_at",{ascending:false})
  ]);
  if(ve||le){console.error(ve||le);alert("Não foi possível carregar os dados do CRM: "+(ve||le).message);return}
  const limiteStandby=new Date(Date.now()-180*24*60*60*1000).toISOString();
@@ -41,7 +41,7 @@ const prazoEtapas={
 };
 function statusPrazo(l){
  const p=prazoEtapas[l.stage];if(!p)return "";
- const base=l.updated_at||l.created_at;if(!base)return "prazo-ok";
+ const base=l.entrou_na_etapa_em||l.created_at;if(!base)return "prazo-ok";
  const horas=(Date.now()-new Date(base).getTime())/3600000;
  return horas<=p.verde?"prazo-ok":horas<=p.amarelo?"prazo-atencao":"prazo-atrasado";
 }
@@ -49,7 +49,7 @@ function drawBoard(){
  let q=(document.querySelector("#search").value||"").toLowerCase(),sf=document.querySelector("#seller").value;
  document.querySelector("#board").innerHTML=stages.map(s=>{let a=leads.filter(l=>l.stage===s&&(!sf||String(l.sellerId)===sf)&&(!q||(l.name+l.project+l.phone).toLowerCase().includes(q)));return '<div class="col" data-stage="'+esc(s)+'"><div class="colhead"><span>'+esc(s)+'</span><span class="count">'+a.length+'</span></div>'+a.map(l=>{let espera=s==="Stand-by"&&l.updated_at?Math.max(0,Math.floor((Date.now()-new Date(l.updated_at).getTime())/86400000)):null;let aviso=espera!==null?'<div class="standby-age">Em espera há '+espera+' dia(s) · arquiva em '+Math.max(0,180-espera)+' dia(s)</div>':"";return '<div class="card '+statusPrazo(l)+'" draggable="true" data-id="'+l.id+'"><h4>'+esc(l.name)+'</h4><p>'+esc(l.project)+'</p><strong>'+money(l.value)+'</strong>'+aviso+'<footer><span>'+esc(l.source)+'</span><span>'+esc((l.seller||"Sem responsável").split(" ")[0])+'</span></footer></div>'}).join("")+'</div>'}).join("");
  document.querySelectorAll(".card").forEach(c=>{c.ondragstart=e=>e.dataTransfer.setData("text",c.dataset.id);c.onclick=()=>abrirEdicaoLead(Number(c.dataset.id));c.title="Clique para abrir e editar";});
- document.querySelectorAll(".col").forEach(c=>{c.ondragover=e=>e.preventDefault();c.ondrop=async e=>{let id=Number(e.dataTransfer.getData("text")),l=leads.find(x=>x.id===id);if(!l||l.stage===c.dataset.stage)return;const old=l.stage;l.stage=c.dataset.stage;render();const {error}=await db.from("leads").update({etapa:l.stage}).eq("id",id);if(error){l.stage=old;render();alert("Não foi possível mover o lead: "+error.message)}}});
+ document.querySelectorAll(".col").forEach(c=>{c.ondragover=e=>e.preventDefault();c.ondrop=async e=>{let id=Number(e.dataTransfer.getData("text")),l=leads.find(x=>x.id===id);if(!l||l.stage===c.dataset.stage)return;const old=l.stage;l.stage=c.dataset.stage;render();const {error}=await db.from("leads").update({etapa:l.stage,entrou_na_etapa_em:new Date().toISOString()}).eq("id",id);if(error){l.stage=old;render();alert("Não foi possível mover o lead: "+error.message)}}});
 }
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll("nav button,.view").forEach(x=>x.classList.remove("active"));b.classList.add("active");document.querySelector("#"+b.dataset.v).classList.add("active");document.querySelector("#title").textContent=b.textContent.trim().replace(/[▦◫◎♙]/,"").trim()});
 document.querySelector("[data-go]").onclick=()=>document.querySelector('[data-v="kanban"]').click();
