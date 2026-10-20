@@ -93,7 +93,7 @@
     const a=ambientes.find(x=>x.id===ambienteId)||{};
     abrirFormulario(ambienteId?'Editar ambiente':'Novo ambiente',
       '<label>Ambiente<input name="nome" required value="'+E(a.nome_ambiente||'')+'"></label>'+
-      '<label>Status<input name="status" value="'+E(a.status_ambiente||'')+'"></label>'+
+      '<label>Status<select name="status"><option value="">Selecione uma etapa</option>'+["Aguardando conferência de medidas","Conferência de medidas realizada","Caderno técnico em elaboração","Aguardando aprovação técnica","Aprovado para fabricação","Em fabricação","Fabricação concluída","Aguardando instalação","Em instalação","Instalação concluída","Finalizado"].map(x=>'<option value="'+E(x)+'" '+(a.status_ambiente===x?'selected':'')+'>'+E(x)+'</option>').join('')+'</select></label>' +
       '<label>Prazo em dias úteis<input name="prazo" type="number" min="1" value="'+E(a.prazo_fabricacao_dias_uteis??35)+'"></label>'+
       '<p class="pv-help">Aprovação técnica: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'. A data só pode ser registrada pelo procedimento autorizado de aprovação.</p>'+
       '<label>Observações<textarea name="obs">'+E(a.observacoes_tecnicas||'')+'</textarea></label>',
