@@ -36,7 +36,7 @@
     const rs=await Promise.all([
       db.from('posvenda_etapas').select('id,ordem,nome,ativo').eq('ativo',true).order('ordem'),
       db.from('posvenda_pedidos').select('id,numero_pedido,nome_cliente,etapa_atual,responsavel_posvenda,observacoes,created_at').order('created_at',{ascending:false}),
-      db.from('posvenda_ambientes').select('id,pedido_id,nome_ambiente,status_ambiente,previsao_fabricacao,prazo_fabricacao_dias_uteis,aprovacao_tecnica_em'),
+      db.from('posvenda_ambientes').select('id,pedido_id,nome_ambiente,status_ambiente,previsao_fabricacao,prazo_fabricacao_dias_uteis,aprovacao_tecnica_em,arquivo_projeto_url'),
       db.from('posvenda_visitas').select('id,pedido_id,ambiente_id,data_visita,tipo_visita,status_visita,responsavel_visita').order('data_visita',{ascending:true})
     ]);
     const falhas=rs.map((r,i)=>r.error?['etapas','pedidos','ambientes','visitas'][i]+': '+errorText(r.error):null).filter(Boolean);
@@ -96,11 +96,12 @@
       '<label>Status<select name="status"><option value="">Selecione uma etapa</option>'+["Aguardando conferência de medidas","Conferência de medidas realizada","Caderno técnico em elaboração","Aguardando aprovação técnica","Aprovado para fabricação","Em fabricação","Fabricação concluída","Aguardando instalação","Em instalação","Instalação concluída","Finalizado"].map(x=>'<option value="'+E(x)+'" '+(a.status_ambiente===x?'selected':'')+'>'+E(x)+'</option>').join('')+'</select></label>' +
       '<label>Prazo em dias úteis<input name="prazo" type="number" min="1" value="'+E(a.prazo_fabricacao_dias_uteis??35)+'"></label>'+
       '<p class="pv-help">Aprovação técnica: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'. O prazo começa somente após aprovação formal registrada pelo procedimento autorizado, manualmente ou via Autentique.</p>'+
+      '<label>Link do documento técnico aprovado<input name="arquivo" type="url" placeholder="https://..." value="'+E(a.arquivo_projeto_url||'')+'"></label>'+ 
       '<label>Observações<textarea name="obs">'+E(a.observacoes_tecnicas||'')+'</textarea></label>',
       async f=>{
         const status=String(f.get('status')).trim();
         if(!a.aprovacao_tecnica_em && ['Aprovado para fabricação','Em fabricação','Fabricação concluída','Aguardando instalação','Em instalação','Instalação concluída','Finalizado'].includes(status))throw new Error('Este ambiente ainda não possui aprovação técnica. A liberação deve ocorrer pelo procedimento autorizado.');
-        const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:status||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null};
+        const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:status||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null,arquivo_projeto_url:String(f.get('arquivo')).trim()||null};
         const r=ambienteId?await db.from('posvenda_ambientes').update(p).eq('id',ambienteId):await db.from('posvenda_ambientes').insert(p);if(r.error)throw r.error;
       });
   }
@@ -118,6 +119,21 @@
         const p={pedido_id:pedidoId,ambiente_id:f.get('ambiente')?Number(f.get('ambiente')):null,data_visita:dt.toISOString(),tipo_visita:String(f.get('tipo')).trim(),responsavel_visita:String(f.get('responsavel')).trim()||null,status_visita:String(f.get('status')).trim()||null};
         const r=visitaId?await db.from('posvenda_visitas').update(p).eq('id',visitaId):await db.from('posvenda_visitas').insert(p);if(r.error)throw r.error;
       });
+  }
+  async function aprovarAmbiente(ambienteId){
+    if(!admin){msg('Somente administradores podem aprovar projetos técnicos.',true);return;}
+    const a=ambientes.find(x=>x.id===ambienteId);
+    if(!a){msg('Ambiente não encontrado.',true);return;}
+    if(a.aprovacao_tecnica_em){msg('Este ambiente já está aprovado.',true);return;}
+    if(!a.arquivo_projeto_url){alert('Primeiro edite o ambiente e informe o link do documento técnico aprovado.');return;}
+    const confirmar=confirm('Confirma que o cliente aprovou formalmente o projeto técnico de '+(a.nome_ambiente||'este ambiente')+'?\\n\\nDocumento: '+a.arquivo_projeto_url+'\\n\\nEsta ação inicia a contagem do prazo de fabricação e ficará registrada na auditoria.');
+    if(!confirmar)return;
+    const {error}=await db.rpc('posvenda_aprovar_manual',{p_ambiente_id:ambienteId});
+    if(error){msg('Aprovação não realizada: '+errorText(error),true);alert('Não foi possível aprovar: '+errorText(error));return;}
+    await carregar();
+    const pd=$('#pvEditarPedidoDialog');
+    if(pd?.open){pd.close();editarPedido(window.pvPedidoSelecionado);$('#pvEditarPedidoDialog [data-pv-tab="ambientes"]')?.click();}
+    msg('Aprovação registrada. Confira a previsão de fabricação.');
   }
   function editarPedido(id){
     window.pvPedidoSelecionado=id;
@@ -154,6 +170,7 @@
       const aa=ambientes.filter(a=>a.pedido_id===id);
       $('#pvAmbientesPedido').innerHTML=aa.length?aa.map(a=>'<div class="pv-item"><b>'+E(a.nome_ambiente||'Sem nome')+'</b><span>'+E(a.status_ambiente||'Sem status')+' · '+E(a.prazo_fabricacao_dias_uteis??35)+' dias úteis</span><span>Aprovação: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'</span><span>Previsão: '+E(fmtDate(a.previsao_fabricacao))+'</span><button type="button" data-ambiente="'+a.id+'">Editar ambiente</button></div>').join(''):'<p>Nenhum ambiente cadastrado.</p>';
       $('#pvAmbientesPedido').querySelectorAll('[data-ambiente]').forEach(b=>b.onclick=()=>abrirAmbiente(id,Number(b.dataset.ambiente)));
+      $('#pvAmbientesPedido').querySelectorAll('[data-aprovar-ambiente]').forEach(b=>b.onclick=()=>aprovarAmbiente(Number(b.dataset.aprovarAmbiente)));
       const vv=visitas.filter(v=>v.pedido_id===id);
       $('#pvVisitasPedido').innerHTML=vv.length?vv.map(v=>'<div class="pv-item"><b>'+E(v.tipo_visita||'Visita')+'</b><span>'+E(v.data_visita?new Date(v.data_visita).toLocaleString('pt-BR'):'Sem data')+'</span><span>'+E(v.status_visita||'Sem status')+'</span><button type="button" data-visita="'+v.id+'">Editar visita</button></div>').join(''):'<p>Nenhuma visita cadastrada.</p>';
       $('#pvVisitasPedido').querySelectorAll('[data-visita]').forEach(b=>b.onclick=()=>abrirVisita(id,Number(b.dataset.visita)));
