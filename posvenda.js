@@ -13,15 +13,13 @@
     if(!nav || !main || $('#pvNav')) return;
     const b=document.createElement('button');b.id='pvNav';b.type='button';b.textContent='▤ Pós-Vendas';b.style.display='none';nav.appendChild(b);
     const section=document.createElement('section');section.id='posvenda';section.className='view';
-    section.innerHTML=`<div class="pv-header"><div><small>PRODUÇÃO • INSTALAÇÃO</small><h2>CRM Pós-Vendas</h2></div><div class="pv-actions"><button class="primary" id="pvNovoPedido">+ Novo pedido</button><button class="primary" id="pvNovoAmbiente">+ Ambiente</button><button class="primary" id="pvNovaVisita">+ Visita</button><button id="pvAtualizar" type="button">Atualizar</button></div></div><div id="pvMensagem" role="status"></div><div id="pvIndicadores" class="pv-indicadores"></div><div class="pv-toolbar"><input id="pvBusca" placeholder="Buscar pedido ou cliente" aria-label="Buscar pedido ou cliente"><span>Arraste os cartões para mudar a etapa</span></div><div id="pvBoard" class="pv-board"></div><h3>Ambientes e fabricação</h3><div id="pvAmbientes" class="pv-lista"></div><h3>Visitas e instalações</h3><div id="pvVisitas" class="pv-lista"></div>`;
+    section.innerHTML=`<div class="pv-header"><div><small>PRODUÇÃO • INSTALAÇÃO</small><h2>CRM Pós-Vendas</h2></div><div class="pv-actions"><button class="primary" id="pvNovoPedido">+ Novo pedido</button><button id="pvAtualizar" type="button">Atualizar</button></div></div><div id="pvMensagem" role="status"></div><div id="pvIndicadores" class="pv-indicadores"></div><div class="pv-toolbar"><input id="pvBusca" placeholder="Buscar pedido ou cliente" aria-label="Buscar pedido ou cliente"><span>Arraste os cartões para mudar a etapa</span></div><div id="pvBoard" class="pv-board"></div>`;
     main.appendChild(section);
     b.addEventListener('click',async()=>{document.querySelectorAll('nav button,.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');section.classList.add('active');$('#title').textContent='Pós-Vendas';const novo=$('#novo');if(novo)novo.style.display='none';await carregar();});
     document.querySelectorAll('aside nav button:not(#pvNav)').forEach(btn=>btn.addEventListener('click',()=>{const novo=$('#novo');if(novo)novo.style.display='';}));
     $('#pvAtualizar').onclick=carregar;
     $('#pvBusca').oninput=render;
     $('#pvNovoPedido').onclick=novoPedido;
-    $('#pvNovoAmbiente').onclick=novoAmbiente;
-    $('#pvNovaVisita').onclick=novaVisita;
   };
   async function checarAcesso(){
     const {data:{user},error}=await db.auth.getUser();
@@ -54,7 +52,7 @@
     $('#pvIndicadores').innerHTML=`<div><small>Pedidos</small><strong>${pedidos.length}</strong></div><div><small>Ambientes</small><strong>${ambientes.length}</strong></div><div><small>Previsões vencidas*</small><strong>${atrasados}</strong></div><div><small>Visitas</small><strong>${visitas.length}</strong></div>`;
     $('#pvBoard').innerHTML=etapas.length?etapas.map(e=>{
       const cards=filtrados.filter(p=>p.etapa_atual===e.nome);
-      return `<div class="pv-col" data-etapa="${E(e.nome)}"><div class="pv-col-title"><b>${E(e.nome)}</b><span>${cards.length}</span></div>${cards.map(p=>`<div class="pv-card" draggable="true" data-pedido="${p.id}" role="button" tabindex="0" title="Clique para editar o pedido"><strong>${E(p.nome_cliente||'Cliente não informado')}</strong><small>Pedido ${E(p.numero_pedido||p.id)}</small><small>${E(p.responsavel_posvenda||'Sem responsável')}</small></div>`).join('')}</div>`;
+      return `<div class="pv-col" data-etapa="${E(e.nome)}"><div class="pv-col-title"><b>${E(e.nome)}</b><span>${cards.length}</span></div>${cards.map(p=>`<div class="pv-card" draggable="true" data-pedido="${p.id}" role="button" tabindex="0" title="Clique para editar o pedido"><strong>${E(p.nome_cliente||'Cliente não informado')}</strong><small>Pedido ${E(p.numero_pedido||p.id)}</small><small>${E(p.responsavel_posvenda||'Sem responsável')}</small><small>${ambientes.filter(a=>a.pedido_id===p.id).length} ambiente(s) · ${ambientes.filter(a=>a.pedido_id===p.id&&a.aprovacao_tecnica_em).length} aprovado(s)</small></div>`).join('')}</div>`;
     }).join(''):'<p>Não há etapas disponíveis. Verifique as permissões de leitura de posvenda_etapas.</p>';
     document.querySelectorAll('.pv-card').forEach(el=>el.ondragstart=e=>e.dataTransfer.setData('text/plain',el.dataset.pedido));
     document.querySelectorAll('.pv-card').forEach(el=>{
@@ -69,9 +67,7 @@
         if(error){p.etapa_atual=antes;render();msg('Não foi possível mover o pedido: '+errorText(error),true);}else{msg('Etapa atualizada.');await carregar();}
       };
     });
-    const nomePedido=id=>{const p=pedidos.find(x=>x.id===id);return p?`${p.numero_pedido||p.id} — ${p.nome_cliente||'Cliente'}`:`Pedido ${id||'não definido'}`};
-    $('#pvAmbientes').innerHTML=ambientes.length?ambientes.map(a=>`<div class="pv-item"><b>${E(a.nome_ambiente||'Ambiente sem nome')}</b><span>${E(nomePedido(a.pedido_id))}</span><span>Status: ${E(a.status_ambiente||'Não informado')}</span><span>Previsão: ${E(fmtDate(a.previsao_fabricacao))}</span></div>`).join(''):'<p>Nenhum ambiente cadastrado.</p>';
-    $('#pvVisitas').innerHTML=visitas.length?visitas.map(v=>`<div class="pv-item"><b>${E(v.tipo_visita||'Visita')}</b><span>${E(nomePedido(v.pedido_id))}</span><span>${v.data_visita?new Date(v.data_visita).toLocaleString('pt-BR'):'Sem data'}</span><span>${E(v.status_visita||'Sem status')}</span></div>`).join(''):'<p>Nenhuma visita cadastrada.</p>';
+
   }
   async function novoPedido(){
     const nome=prompt('Nome do cliente:');if(!nome?.trim())return;
@@ -80,25 +76,50 @@
     const {error}=await db.from('posvenda_pedidos').insert({nome_cliente:nome.trim(),numero_pedido:numero,etapa_atual:etapa});
     if(error)msg('Não foi possível cadastrar: '+errorText(error),true);else await carregar();
   }
-  async function novoAmbiente(){
-    if(!pedidos.length){msg('Cadastre um pedido primeiro.',true);return;}
-    const lista=pedidos.map(p=>`${p.id}: ${p.numero_pedido||'Sem número'} — ${p.nome_cliente||'Cliente'}`).join('\n');
-    const id=Number(prompt('Informe o ID do pedido:\n'+lista));if(!pedidos.some(p=>p.id===id))return;
-    const nome=prompt('Nome do ambiente (ex.: Cozinha):');if(!nome?.trim())return;
-    const {error}=await db.from('posvenda_ambientes').insert({pedido_id:id,nome_ambiente:nome.trim()});
-    if(error)msg('Não foi possível cadastrar ambiente: '+errorText(error),true);else await carregar();
+  function abrirFormulario(titulo,campos,salvar){
+    const d=document.createElement('dialog');d.className='pv-form-dialog';
+    d.innerHTML='<form><h3>'+E(titulo)+'</h3><div class="pv-form-fields">'+campos+'</div><div class="pv-form-buttons"><button type="button" data-cancel>Cancelar</button><button type="submit" class="primary">Salvar</button></div></form>';
+    document.body.appendChild(d);
+    d.querySelector('[data-cancel]').onclick=()=>d.close();
+    d.addEventListener('close',()=>d.remove());
+    d.querySelector('form').onsubmit=async ev=>{
+      ev.preventDefault();const b=d.querySelector('[type=submit]');b.disabled=true;
+      try{await salvar(new FormData(ev.target));d.close();await carregar();const pd=$('#pvEditarPedidoDialog');if(pd?.open){pd.close();editarPedido(window.pvPedidoSelecionado);}}
+      catch(e){msg('Erro ao salvar: '+errorText(e),true);alert('Erro ao salvar: '+errorText(e));}
+      finally{b.disabled=false;}
+    };d.showModal();
   }
-  async function novaVisita(){
-    if(!pedidos.length){msg('Cadastre um pedido primeiro.',true);return;}
-    const lista=pedidos.map(p=>`${p.id}: ${p.numero_pedido||'Sem número'} — ${p.nome_cliente||'Cliente'}`).join('\n');
-    const id=Number(prompt('ID do pedido:\n'+lista));if(!pedidos.some(p=>p.id===id))return;
-    const data=prompt('Data e hora da visita (AAAA-MM-DD HH:MM):');if(!data||!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(data)){msg('Informe a data no formato solicitado.',true);return;}
-    const tipo=prompt('Tipo de visita (ex.: Medição ou Instalação):')||null;
-    const {error}=await db.from('posvenda_visitas').insert({pedido_id:id,data_visita:new Date(data.replace(' ','T')).toISOString(),tipo_visita:tipo});
-    if(error)msg('Não foi possível agendar: '+errorText(error),true);else await carregar();
+  function abrirAmbiente(pedidoId,ambienteId){
+    const a=ambientes.find(x=>x.id===ambienteId)||{};
+    abrirFormulario(ambienteId?'Editar ambiente':'Novo ambiente',
+      '<label>Ambiente<input name="nome" required value="'+E(a.nome_ambiente||'')+'"></label>'+
+      '<label>Status<input name="status" value="'+E(a.status_ambiente||'')+'"></label>'+
+      '<label>Prazo em dias úteis<input name="prazo" type="number" min="1" value="'+E(a.prazo_fabricacao_dias_uteis??35)+'"></label>'+
+      '<label>Aprovação técnica<input name="aprovacao" type="date" value="'+E(a.aprovacao_tecnica_em?String(a.aprovacao_tecnica_em).slice(0,10):'')+'"></label>'+
+      '<label>Observações<textarea name="obs">'+E(a.observacoes_tecnicas||'')+'</textarea></label>',
+      async f=>{
+        const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:String(f.get('status')).trim()||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null};
+        if(String(f.get('aprovacao')||'')!==String(a.aprovacao_tecnica_em||'').slice(0,10))p.aprovacao_tecnica_em=f.get('aprovacao')?new Date(String(f.get('aprovacao'))+'T12:00:00').toISOString():null;
+        const r=ambienteId?await db.from('posvenda_ambientes').update(p).eq('id',ambienteId):await db.from('posvenda_ambientes').insert(p);if(r.error)throw r.error;
+      });
   }
-
+  function abrirVisita(pedidoId,visitaId){
+    const v=visitas.find(x=>x.id===visitaId)||{};
+    const date=v.data_visita?new Date(new Date(v.data_visita).getTime()-new Date(v.data_visita).getTimezoneOffset()*60000).toISOString().slice(0,16):'';
+    abrirFormulario(visitaId?'Editar visita':'Nova visita',
+      '<label>Tipo<input name="tipo" required value="'+E(v.tipo_visita||'')+'"></label>'+
+      '<label>Data e hora<input name="data" type="datetime-local" required value="'+E(date)+'"></label>'+
+      '<label>Ambiente<select name="ambiente"><option value="">Pedido inteiro</option>'+ambientes.filter(a=>a.pedido_id===pedidoId).map(a=>'<option value="'+a.id+'" '+(v.ambiente_id===a.id?'selected':'')+'>'+E(a.nome_ambiente)+'</option>').join('')+'</select></label>'+
+      '<label>Responsável<input name="responsavel" value="'+E(v.responsavel_visita||'')+'"></label>'+
+      '<label>Status<input name="status" value="'+E(v.status_visita||'')+'"></label>',
+      async f=>{
+        const dt=new Date(String(f.get('data')));if(Number.isNaN(dt.getTime()))throw Error('Data inválida');
+        const p={pedido_id:pedidoId,ambiente_id:f.get('ambiente')?Number(f.get('ambiente')):null,data_visita:dt.toISOString(),tipo_visita:String(f.get('tipo')).trim(),responsavel_visita:String(f.get('responsavel')).trim()||null,status_visita:String(f.get('status')).trim()||null};
+        const r=visitaId?await db.from('posvenda_visitas').update(p).eq('id',visitaId):await db.from('posvenda_visitas').insert(p);if(r.error)throw r.error;
+      });
+  }
   function editarPedido(id){
+    window.pvPedidoSelecionado=id;
     if(!admin)return;
     const pedido=pedidos.find(p=>p.id===id);
     if(!pedido){msg('Pedido não encontrado.',true);return;}
@@ -106,16 +127,16 @@
     if(!dlg){
       dlg=document.createElement('dialog');
       dlg.id='pvEditarPedidoDialog';
-      dlg.style.cssText='border:1px solid #ddd;border-radius:12px;padding:24px;max-width:540px;width:calc(100% - 32px);box-shadow:0 12px 48px #0003;';
+      dlg.style.cssText='border:1px solid #ddd;border-radius:12px;padding:24px;max-width:740px;width:calc(100% - 32px);box-shadow:0 12px 48px #0003;';
       dlg.innerHTML=`<form id="pvEditarPedidoForm">
-        <h2 style="margin:0 0 16px">Editar pedido</h2>
+        <h2 style="margin:0 0 16px">Detalhes do pedido</h2><div class="pv-tabs"><button type="button" data-pv-tab="geral">Dados gerais</button><button type="button" data-pv-tab="ambientes">Ambientes</button><button type="button" data-pv-tab="visitas">Visitas</button></div><div id="pvTabGeral">
         <div style="display:grid;gap:12px">
           <label>Nome do cliente<input name="nome_cliente" required style="width:100%;padding:9px;box-sizing:border-box"></label>
           <label>Número do pedido<input name="numero_pedido" style="width:100%;padding:9px;box-sizing:border-box"></label>
           <label>Responsável pelo pós-vendas<input name="responsavel_posvenda" style="width:100%;padding:9px;box-sizing:border-box"></label>
           <label>Etapa<select name="etapa_atual" style="width:100%;padding:9px;box-sizing:border-box"></select></label>
           <label>Observações<textarea name="observacoes" rows="4" style="width:100%;padding:9px;box-sizing:border-box"></textarea></label>
-        </div>
+        </div></div><div id="pvTabAmbientes" hidden><h3>Ambientes deste pedido</h3><div id="pvAmbientesPedido"></div><button type="button" id="pvAddAmbiente">+ Adicionar ambiente</button></div><div id="pvTabVisitas" hidden><h3>Visitas deste pedido</h3><div id="pvVisitasPedido"></div><button type="button" id="pvAddVisita">+ Agendar visita</button></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
           <button type="button" id="pvCancelarEdicao">Cancelar</button>
           <button class="primary" type="submit" id="pvSalvarEdicao">Salvar alterações</button>
@@ -124,6 +145,21 @@
       $('#pvCancelarEdicao').onclick=()=>dlg.close();
       dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close();});
     }
+    const tabs={geral:$('#pvTabGeral'),ambientes:$('#pvTabAmbientes'),visitas:$('#pvTabVisitas')};
+    const mostrar=t=>{Object.keys(tabs).forEach(k=>tabs[k].hidden=k!==t);$('#pvSalvarEdicao').hidden=t!=='geral';};
+    dlg.querySelectorAll('[data-pv-tab]').forEach(b=>b.onclick=()=>mostrar(b.dataset.pvTab));
+    mostrar('geral');
+    const renderInterno=()=>{
+      const aa=ambientes.filter(a=>a.pedido_id===id);
+      $('#pvAmbientesPedido').innerHTML=aa.length?aa.map(a=>'<div class="pv-item"><b>'+E(a.nome_ambiente||'Sem nome')+'</b><span>'+E(a.status_ambiente||'Sem status')+' · '+E(a.prazo_fabricacao_dias_uteis??35)+' dias úteis</span><span>Aprovação: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'</span><span>Previsão: '+E(fmtDate(a.previsao_fabricacao))+'</span><button type="button" data-ambiente="'+a.id+'">Editar ambiente</button></div>').join(''):'<p>Nenhum ambiente cadastrado.</p>';
+      $('#pvAmbientesPedido').querySelectorAll('[data-ambiente]').forEach(b=>b.onclick=()=>abrirAmbiente(id,Number(b.dataset.ambiente)));
+      const vv=visitas.filter(v=>v.pedido_id===id);
+      $('#pvVisitasPedido').innerHTML=vv.length?vv.map(v=>'<div class="pv-item"><b>'+E(v.tipo_visita||'Visita')+'</b><span>'+E(v.data_visita?new Date(v.data_visita).toLocaleString('pt-BR'):'Sem data')+'</span><span>'+E(v.status_visita||'Sem status')+'</span><button type="button" data-visita="'+v.id+'">Editar visita</button></div>').join(''):'<p>Nenhuma visita cadastrada.</p>';
+      $('#pvVisitasPedido').querySelectorAll('[data-visita]').forEach(b=>b.onclick=()=>abrirVisita(id,Number(b.dataset.visita)));
+    };
+    $('#pvAddAmbiente').onclick=()=>abrirAmbiente(id);
+    $('#pvAddVisita').onclick=()=>abrirVisita(id);
+    renderInterno();
     const form=$('#pvEditarPedidoForm');
     form.elements.nome_cliente.value=pedido.nome_cliente||'';
     form.elements.numero_pedido.value=pedido.numero_pedido||'';
