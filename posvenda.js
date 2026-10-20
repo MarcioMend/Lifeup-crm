@@ -54,9 +54,13 @@
     $('#pvIndicadores').innerHTML=`<div><small>Pedidos</small><strong>${pedidos.length}</strong></div><div><small>Ambientes</small><strong>${ambientes.length}</strong></div><div><small>Previsões vencidas*</small><strong>${atrasados}</strong></div><div><small>Visitas</small><strong>${visitas.length}</strong></div>`;
     $('#pvBoard').innerHTML=etapas.length?etapas.map(e=>{
       const cards=filtrados.filter(p=>p.etapa_atual===e.nome);
-      return `<div class="pv-col" data-etapa="${E(e.nome)}"><div class="pv-col-title"><b>${E(e.nome)}</b><span>${cards.length}</span></div>${cards.map(p=>`<div class="pv-card" draggable="true" data-pedido="${p.id}"><strong>${E(p.nome_cliente||'Cliente não informado')}</strong><small>Pedido ${E(p.numero_pedido||p.id)}</small><small>${E(p.responsavel_posvenda||'Sem responsável')}</small></div>`).join('')}</div>`;
+      return `<div class="pv-col" data-etapa="${E(e.nome)}"><div class="pv-col-title"><b>${E(e.nome)}</b><span>${cards.length}</span></div>${cards.map(p=>`<div class="pv-card" draggable="true" data-pedido="${p.id}" role="button" tabindex="0" title="Clique para editar o pedido"><strong>${E(p.nome_cliente||'Cliente não informado')}</strong><small>Pedido ${E(p.numero_pedido||p.id)}</small><small>${E(p.responsavel_posvenda||'Sem responsável')}</small></div>`).join('')}</div>`;
     }).join(''):'<p>Não há etapas disponíveis. Verifique as permissões de leitura de posvenda_etapas.</p>';
     document.querySelectorAll('.pv-card').forEach(el=>el.ondragstart=e=>e.dataTransfer.setData('text/plain',el.dataset.pedido));
+    document.querySelectorAll('.pv-card').forEach(el=>{
+      el.addEventListener('click',()=>editarPedido(Number(el.dataset.pedido)));
+      el.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();editarPedido(Number(el.dataset.pedido));}});
+    });
     document.querySelectorAll('.pv-col').forEach(el=>{
       el.ondragover=e=>e.preventDefault();
       el.ondrop=async e=>{e.preventDefault();const id=Number(e.dataTransfer.getData('text/plain'));const p=pedidos.find(x=>x.id===id);if(!p||p.etapa_atual===el.dataset.etapa)return;
@@ -92,6 +96,64 @@
     const tipo=prompt('Tipo de visita (ex.: Medição ou Instalação):')||null;
     const {error}=await db.from('posvenda_visitas').insert({pedido_id:id,data_visita:new Date(data.replace(' ','T')).toISOString(),tipo_visita:tipo});
     if(error)msg('Não foi possível agendar: '+errorText(error),true);else await carregar();
+  }
+
+  function editarPedido(id){
+    if(!admin)return;
+    const pedido=pedidos.find(p=>p.id===id);
+    if(!pedido){msg('Pedido não encontrado.',true);return;}
+    let dlg=$('#pvEditarPedidoDialog');
+    if(!dlg){
+      dlg=document.createElement('dialog');
+      dlg.id='pvEditarPedidoDialog';
+      dlg.style.cssText='border:1px solid #ddd;border-radius:12px;padding:24px;max-width:540px;width:calc(100% - 32px);box-shadow:0 12px 48px #0003;';
+      dlg.innerHTML=`<form id="pvEditarPedidoForm">
+        <h2 style="margin:0 0 16px">Editar pedido</h2>
+        <div style="display:grid;gap:12px">
+          <label>Nome do cliente<input name="nome_cliente" required style="width:100%;padding:9px;box-sizing:border-box"></label>
+          <label>Número do pedido<input name="numero_pedido" style="width:100%;padding:9px;box-sizing:border-box"></label>
+          <label>Responsável pelo pós-vendas<input name="responsavel_posvenda" style="width:100%;padding:9px;box-sizing:border-box"></label>
+          <label>Etapa<select name="etapa_atual" style="width:100%;padding:9px;box-sizing:border-box"></select></label>
+          <label>Observações<textarea name="observacoes" rows="4" style="width:100%;padding:9px;box-sizing:border-box"></textarea></label>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
+          <button type="button" id="pvCancelarEdicao">Cancelar</button>
+          <button class="primary" type="submit" id="pvSalvarEdicao">Salvar alterações</button>
+        </div></form>`;
+      document.body.appendChild(dlg);
+      $('#pvCancelarEdicao').onclick=()=>dlg.close();
+      dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close();});
+    }
+    const form=$('#pvEditarPedidoForm');
+    form.elements.nome_cliente.value=pedido.nome_cliente||'';
+    form.elements.numero_pedido.value=pedido.numero_pedido||'';
+    form.elements.responsavel_posvenda.value=pedido.responsavel_posvenda||'';
+    form.elements.observacoes.value=pedido.observacoes||'';
+    const sel=form.elements.etapa_atual;
+    sel.innerHTML=etapas.map(e=>`<option value="${E(e.nome)}">${E(e.nome)}</option>`).join('');
+    sel.value=pedido.etapa_atual||etapas[0]?.nome||'';
+    form.onsubmit=async ev=>{
+      ev.preventDefault();
+      const btn=$('#pvSalvarEdicao');
+      const payload={
+        nome_cliente:form.elements.nome_cliente.value.trim(),
+        numero_pedido:form.elements.numero_pedido.value.trim()||null,
+        responsavel_posvenda:form.elements.responsavel_posvenda.value.trim()||null,
+        etapa_atual:sel.value||null,
+        observacoes:form.elements.observacoes.value.trim()||null
+      };
+      if(!payload.nome_cliente){msg('Informe o nome do cliente.',true);return;}
+      btn.disabled=true;btn.textContent='Salvando...';
+      try{
+        const {error}=await db.from('posvenda_pedidos').update(payload).eq('id',id);
+        if(error)throw error;
+        dlg.close();
+        await carregar();
+        msg('Pedido atualizado com sucesso.');
+      }catch(err){msg('Erro ao editar pedido: '+errorText(err),true);alert('Não foi possível salvar: '+errorText(err));}
+      finally{btn.disabled=false;btn.textContent='Salvar alterações';}
+    };
+    dlg.showModal();
   }
   document.addEventListener('DOMContentLoaded',()=>{
     layout();
