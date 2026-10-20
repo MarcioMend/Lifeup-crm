@@ -89,6 +89,26 @@
       finally{b.disabled=false;}
     };d.showModal();
   }
+  const PV_BUCKET='lifeup-projetos-tecnicos';
+  function pvDocumentoInterno(valor){return String(valor||'').startsWith('storage://'+PV_BUCKET+'/');}
+  async function pvVisualizarDocumento(valor){
+    if(!valor)return;
+    if(!pvDocumentoInterno(valor)){const url=new URL(valor);if(!['https:','http:'].includes(url.protocol))throw Error('Link inválido');window.open(url.href,'_blank','noopener,noreferrer');return;}
+    const caminho=valor.slice(('storage://'+PV_BUCKET+'/').length);
+    const {data,error}=await db.storage.from(PV_BUCKET).createSignedUrl(caminho,120);
+    if(error)throw error;
+    window.open(data.signedUrl,'_blank','noopener,noreferrer');
+  }
+  async function pvEnviarDocumento(file,pedidoId,ambienteId){
+    if(!file||!file.size)throw Error('Selecione um arquivo válido.');
+    if(file.size>15*1024*1024)throw Error('O arquivo deve ter no máximo 15 MB.');
+    const tipos={'application/pdf':'pdf','image/jpeg':'jpg','image/png':'png'};
+    if(!tipos[file.type])throw Error('Use PDF, JPG ou PNG.');
+    const caminho='pedidos/'+pedidoId+'/ambientes/'+ambienteId+'/'+crypto.randomUUID()+'.'+tipos[file.type];
+    const {error}=await db.storage.from(PV_BUCKET).upload(caminho,file,{contentType:file.type,upsert:false});
+    if(error)throw error;
+    return 'storage://'+PV_BUCKET+'/'+caminho;
+  }
   function abrirAmbiente(pedidoId,ambienteId){
     const a=ambientes.find(x=>x.id===ambienteId)||{};
     abrirFormulario(ambienteId?'Editar ambiente':'Novo ambiente',
@@ -96,14 +116,24 @@
       '<label>Status<select name="status"><option value="">Selecione uma etapa</option>'+["Aguardando conferência de medidas","Conferência de medidas realizada","Caderno técnico em elaboração","Aguardando aprovação técnica","Aprovado para fabricação","Em fabricação","Fabricação concluída","Aguardando instalação","Em instalação","Instalação concluída","Finalizado"].map(x=>'<option value="'+E(x)+'" '+(a.status_ambiente===x?'selected':'')+'>'+E(x)+'</option>').join('')+'</select></label>' +
       '<label>Prazo em dias úteis<input name="prazo" type="number" min="1" value="'+E(a.prazo_fabricacao_dias_uteis??35)+'"></label>'+
       '<p class="pv-help">Aprovação técnica: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'. O prazo começa somente após aprovação formal registrada pelo procedimento autorizado, manualmente ou via Autentique.</p>'+
-      '<label>Link do documento técnico aprovado<input name="arquivo" type="url" placeholder="https://..." value="'+E(a.arquivo_projeto_url||'')+'"></label>'+ 
+      '<fieldset class="pv-documento"><legend>Documento de aprovação técnica</legend><label>Anexar arquivo (PDF, JPG ou PNG, até 15 MB)<input name="arquivo_upload" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" '+(!ambienteId?'disabled':'')+'></label>'+(!ambienteId?'<small>Salve o ambiente antes de anexar um arquivo.</small>':'')+'<label>Ou adicionar link do documento<input name="arquivo" type="url" placeholder="https://..." value="'+E(pvDocumentoInterno(a.arquivo_projeto_url)?'':a.arquivo_projeto_url||'')+'"></label>'+(a.arquivo_projeto_url?'<button type="button" data-ver-documento>Visualizar documento atual</button>':'')+'</fieldset>'+ 
       '<label>Observações<textarea name="obs">'+E(a.observacoes_tecnicas||'')+'</textarea></label>',
       async f=>{
         const status=String(f.get('status')).trim();
         if(!a.aprovacao_tecnica_em && ['Aprovado para fabricação','Em fabricação','Fabricação concluída','Aguardando instalação','Em instalação','Instalação concluída','Finalizado'].includes(status))throw new Error('Este ambiente ainda não possui aprovação técnica. A liberação deve ocorrer pelo procedimento autorizado.');
-        const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:status||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null,arquivo_projeto_url:String(f.get('arquivo')).trim()||null};
+        const file=f.get('arquivo_upload');
+        const link=String(f.get('arquivo')).trim();
+        if(file?.size&&link)throw Error('Escolha somente um método: arquivo ou link.');
+        if(file?.size&&(!ambienteId))throw Error('Salve o ambiente antes de anexar.');
+        let documento=a.arquivo_projeto_url||null;
+        if(file?.size)documento=await pvEnviarDocumento(file,pedidoId,ambienteId);
+        else if(link)documento=link;
+        else if(!pvDocumentoInterno(documento))documento=null;
+        const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:status||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null,arquivo_projeto_url:documento};
         const r=ambienteId?await db.from('posvenda_ambientes').update(p).eq('id',ambienteId):await db.from('posvenda_ambientes').insert(p);if(r.error)throw r.error;
       });
+    const ver=document.querySelector('dialog.pv-form-dialog:last-of-type [data-ver-documento]');
+    if(ver)ver.onclick=async()=>{try{await pvVisualizarDocumento(a.arquivo_projeto_url);}catch(e){alert('Não foi possível abrir o documento: '+errorText(e));}};
   }
   function abrirVisita(pedidoId,visitaId){
     const v=visitas.find(x=>x.id===visitaId)||{};
@@ -170,6 +200,7 @@
       const aa=ambientes.filter(a=>a.pedido_id===id);
       $('#pvAmbientesPedido').innerHTML=aa.length?aa.map(a=>'<div class="pv-item"><b>'+E(a.nome_ambiente||'Sem nome')+'</b><span>'+E(a.status_ambiente||'Sem status')+' · '+E(a.prazo_fabricacao_dias_uteis??35)+' dias úteis</span><span>Aprovação: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'</span><span>Previsão: '+E(fmtDate(a.previsao_fabricacao))+'</span><button type="button" data-ambiente="'+a.id+'">Editar ambiente</button></div>').join(''):'<p>Nenhum ambiente cadastrado.</p>';
       $('#pvAmbientesPedido').querySelectorAll('[data-ambiente]').forEach(b=>b.onclick=()=>abrirAmbiente(id,Number(b.dataset.ambiente)));
+      $('#pvAmbientesPedido').querySelectorAll('[data-ver-arquivo]').forEach(b=>b.onclick=async()=>{try{const a=ambientes.find(x=>x.id===Number(b.dataset.verArquivo));await pvVisualizarDocumento(a?.arquivo_projeto_url);}catch(e){alert('Erro ao abrir documento: '+errorText(e));}});
       $('#pvAmbientesPedido').querySelectorAll('[data-aprovar-ambiente]').forEach(b=>b.onclick=()=>aprovarAmbiente(Number(b.dataset.aprovarAmbiente)));
       const vv=visitas.filter(v=>v.pedido_id===id);
       $('#pvVisitasPedido').innerHTML=vv.length?vv.map(v=>'<div class="pv-item"><b>'+E(v.tipo_visita||'Visita')+'</b><span>'+E(v.data_visita?new Date(v.data_visita).toLocaleString('pt-BR'):'Sem data')+'</span><span>'+E(v.status_visita||'Sem status')+'</span><button type="button" data-visita="'+v.id+'">Editar visita</button></div>').join(''):'<p>Nenhuma visita cadastrada.</p>';
