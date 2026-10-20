@@ -95,11 +95,10 @@
       '<label>Ambiente<input name="nome" required value="'+E(a.nome_ambiente||'')+'"></label>'+
       '<label>Status<input name="status" value="'+E(a.status_ambiente||'')+'"></label>'+
       '<label>Prazo em dias úteis<input name="prazo" type="number" min="1" value="'+E(a.prazo_fabricacao_dias_uteis??35)+'"></label>'+
-      '<label>Aprovação técnica<input name="aprovacao" type="date" value="'+E(a.aprovacao_tecnica_em?String(a.aprovacao_tecnica_em).slice(0,10):'')+'"></label>'+
+      '<p class="pv-help">Aprovação técnica: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'. A data só pode ser registrada pelo procedimento autorizado de aprovação.</p>'+
       '<label>Observações<textarea name="obs">'+E(a.observacoes_tecnicas||'')+'</textarea></label>',
       async f=>{
         const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:String(f.get('status')).trim()||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null};
-        if(String(f.get('aprovacao')||'')!==String(a.aprovacao_tecnica_em||'').slice(0,10))p.aprovacao_tecnica_em=f.get('aprovacao')?new Date(String(f.get('aprovacao'))+'T12:00:00').toISOString():null;
         const r=ambienteId?await db.from('posvenda_ambientes').update(p).eq('id',ambienteId):await db.from('posvenda_ambientes').insert(p);if(r.error)throw r.error;
       });
   }
