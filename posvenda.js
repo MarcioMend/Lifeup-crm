@@ -95,10 +95,12 @@
       '<label>Ambiente<input name="nome" required value="'+E(a.nome_ambiente||'')+'"></label>'+
       '<label>Status<select name="status"><option value="">Selecione uma etapa</option>'+["Aguardando conferência de medidas","Conferência de medidas realizada","Caderno técnico em elaboração","Aguardando aprovação técnica","Aprovado para fabricação","Em fabricação","Fabricação concluída","Aguardando instalação","Em instalação","Instalação concluída","Finalizado"].map(x=>'<option value="'+E(x)+'" '+(a.status_ambiente===x?'selected':'')+'>'+E(x)+'</option>').join('')+'</select></label>' +
       '<label>Prazo em dias úteis<input name="prazo" type="number" min="1" value="'+E(a.prazo_fabricacao_dias_uteis??35)+'"></label>'+
-      '<p class="pv-help">Aprovação técnica: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'. A data só pode ser registrada pelo procedimento autorizado de aprovação.</p>'+
+      '<p class="pv-help">Aprovação técnica: '+E(a.aprovacao_tecnica_em?new Date(a.aprovacao_tecnica_em).toLocaleDateString('pt-BR'):'Pendente')+'. O prazo começa somente após aprovação formal registrada pelo procedimento autorizado, manualmente ou via Autentique.</p>'+
       '<label>Observações<textarea name="obs">'+E(a.observacoes_tecnicas||'')+'</textarea></label>',
       async f=>{
-        const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:String(f.get('status')).trim()||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null};
+        const status=String(f.get('status')).trim();
+        if(!a.aprovacao_tecnica_em && ['Aprovado para fabricação','Em fabricação','Fabricação concluída','Aguardando instalação','Em instalação','Instalação concluída','Finalizado'].includes(status))throw new Error('Este ambiente ainda não possui aprovação técnica. A liberação deve ocorrer pelo procedimento autorizado.');
+        const p={pedido_id:pedidoId,nome_ambiente:String(f.get('nome')).trim(),status_ambiente:status||null,prazo_fabricacao_dias_uteis:Number(f.get('prazo'))||35,observacoes_tecnicas:String(f.get('obs')).trim()||null};
         const r=ambienteId?await db.from('posvenda_ambientes').update(p).eq('id',ambienteId):await db.from('posvenda_ambientes').insert(p);if(r.error)throw r.error;
       });
   }
