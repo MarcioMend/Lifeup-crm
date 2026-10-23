@@ -1,6 +1,7 @@
 -- Life Up | Fluxo controlado de tarefas e SLA | RASCUNHO PARA HOMOLOGACAO
 -- NAO EXECUTAR EM PRODUCAO sem validar triggers, RLS e webhook existentes.
--- Datas de etapas antigas sao inicializadas como NULL para evitar falsos atrasos.
+-- Pedidos existentes recebem inicio em now() no backfill; validar politica de SLA legado.
+-- ATENCAO: nao executar: ainda falta revisar isolamento de RPC, Autentique e requisitos verificaveis.
 begin;
 
 create table if not exists public.posvenda_controle_etapas (
@@ -180,6 +181,9 @@ begin
  then raise exception 'Acesso não autorizado'; end if;
  select etapa_atual into v_etapa from public.posvenda_pedidos where id=p_pedido_id for update;
  if v_etapa is null then raise exception 'Pedido não encontrado'; end if;
+ if not exists(select 1 from public.posvenda_checklist where pedido_id=p_pedido_id and etapa_nome=v_etapa) then
+  raise exception 'Checklist da etapa não configurado; avanço bloqueado';
+ end if;
  if v_etapa='Aprovação técnica' then
   select count(*),count(*) filter(where aprovacao_tecnica_em is not null)
    into v_qtd,v_aprovados from public.posvenda_ambientes where pedido_id=p_pedido_id;
