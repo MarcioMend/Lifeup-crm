@@ -78,3 +78,32 @@ A função `posvenda_confirmar_contrato` é SECURITY INVOKER (`prosecdef=false`)
 
 ## Auditoria dos dados existentes
 Consulta de 23/10/2026: 6 pedidos, todos numerados, 0 com ano_pedido nulo, 2 números novos MMYY-NNNN e 4 números legados. Preservar os dois formatos na identificação; sem necessidade de backfill do ano.
+
+## Decisão aprovada — limpeza segura dos seis pedidos de teste
+O usuário confirmou que os seis pedidos são exclusivamente de teste, sem pedidos reais cadastrados, e autorizou **planejar** a limpeza somente após a homologação. Não autorizou exclusão imediata.
+
+### Procedimento obrigatório
+1. Inventariar IDs, números, CRM leads, Autentique IDs e todas as tabelas com FK para posvenda_pedidos, incluindo dependências indiretas de ambientes/documentos/revisões.
+2. Verificar integrações externas, documentos no Autentique e arquivos no Storage; não apagar automaticamente dados externos.
+3. Concluir testes e obter aceite explícito para executar limpeza.
+4. Produzir backup/exportação verificável e relatório de dependências antes de qualquer DELETE.
+5. Usar transação e checagens de contagem, restringindo por IDs explícitos; jamais TRUNCATE CASCADE ou reset de sequence.
+6. Preservar sequência global de numeração e histórico necessário à auditoria; planejar anonimização/arquivamento se exigido.
+7. Conferir estado pós-limpeza e comportamento do próximo pedido, sem criar pedido real fictício.
+
+### Diagnóstico inicial de FKs (somente leitura)
+```sql
+SELECT conrelid::regclass AS tabela_dependente,
+       conname AS nome_relacionamento,
+       confrelid::regclass AS tabela_referenciada,
+       pg_get_constraintdef(oid) AS definicao
+FROM pg_constraint
+WHERE contype='f'
+  AND confrelid IN (
+    'public.posvenda_pedidos'::regclass,
+    'public.posvenda_ambientes'::regclass,
+    'public.posvenda_documentos'::regclass,
+    'public.posvenda_revisoes_projeto'::regclass
+  )
+ORDER BY tabela_referenciada::text, tabela_dependente::text;
+```
