@@ -107,3 +107,11 @@ WHERE contype='f'
   )
 ORDER BY tabela_referenciada::text, tabela_dependente::text;
 ```
+
+## Mapa de FKs confirmado (15 relacionamentos)
+- pedidos <- ambientes, visitas, documentos, historico_etapas, autorizacoes_fabricacao.
+- ambientes <- visitas, auditoria_aprovacoes, revisoes_projeto, solicitacoes_alteracao, autorizacoes_fabricacao.
+- documentos <- revisoes_projeto (documento_id).
+- revisoes_projeto <- revisoes_projeto (revisao_anterior_id), solicitacoes_alteracao (revisao_origem_id e revisao_destino_id), autorizacoes_fabricacao (revisao_id).
+- Todas as definições retornadas foram FOREIGN KEY simples sem ON DELETE CASCADE explícito. Não executar DELETE até inspecionar gatilhos de proteção, contagens, referências indiretas e Storage/Autentique.
+- Próxima ação: inventário agregado das tabelas ligadas aos seis pedidos. Evitar listar nomes de clientes ou documentos em relatórios desnecessários.
