@@ -67,3 +67,11 @@ A função `posvenda_confirmar_contrato` é SECURITY INVOKER (`prosecdef=false`)
 - `lifeup_numero_pedido_seq` tem `start_value=100`. Isso não confirma o valor atual nem o próximo número.
 - Em `posvenda_pedidos`, consulta de constraints p/u retornou apenas `PRIMARY KEY (id)`, sem UNIQUE constraint para `numero_pedido`. Ainda podem existir índices únicos independentes; verificar `pg_indexes` antes de concluir ausência de proteção.
 - Antes de propor índice único, pesquisar números duplicados, índices existentes e tratamento de números nulos/legados. Não executar DDL em produção sem plano de migração.
+
+## Índices existentes confirmados (Supabase)
+- `posvenda_pedidos_autentique_document_unique`: UNIQUE(autentique_document_id).
+- `posvenda_pedidos_codigo_ano_unique`: UNIQUE(numero_pedido,ano_pedido) WHERE ambos não nulos. Não garante unicidade global de numero_pedido isolado, nem quando ano_pedido é nulo.
+- `posvenda_pedidos_pkey`: UNIQUE(id).
+- `ux_posvenda_pedidos_crm_lead`: UNIQUE(crm_lead_id) WHERE não nulo.
+- Consulta de duplicidades de numero_pedido não retornou linhas.
+- Não criar índice redundante. Próxima verificação: distribuição de ano_pedido nulo e geração de pedidos por função/trigger, além de permissões da RPC geradora.
