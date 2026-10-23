@@ -144,4 +144,83 @@ drop policy if exists lifeup_admin_ler_historico on public.posvenda_historico_et
 create policy lifeup_admin_ler_historico on public.posvenda_historico_etapas for select to authenticated using
  (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
 
+-- Controle de escrita: a interface não pode alterar a etapa diretamente.
+-- O service_role permanece autorizado para os webhooks existentes.
+create or replace function public.lifeup_bloquear_salto_etapa()
+returns trigger language plpgsql security invoker as $
+begin
+ if new.etapa_atual is distinct from old.etapa_atual
+    and auth.role() = 'authenticated'
+    and coalesce(current_setting('lifeup.movimento_validado',true),'') <> 'sim' then
+  raise exception 'Conclua a tarefa da etapa antes de movimentar o pedido.';
+ end if;
+ return new;
+end $;
+
+drop trigger if exists trg_lifeup_bloquear_salto_etapa on public.posvenda_pedidos;
+create trigger trg_lifeup_bloquear_salto_etapa
+before update of etapa_atual on public.posvenda_pedidos
+for each row execute function public.lifeup_bloquear_salto_etapa();
+
+create or replace function public.lifeup_marcar_requisito(
+ p_pedido_id bigint,p_requisito_id bigint,p_concluido boolean
+) returns void language plpgsql security definer set search_path=public as $
+declare v_etapa text;
+begin
+ if not exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true)
+ then raise exception 'Acesso não autorizado'; end if;
+ select etapa_atual into v_etapa from public.posvenda_pedidos where id=p_pedido_id;
+ if v_etapa is null then raise exception 'Pedido não encontrado'; end if;
+ -- Aprovações formais são registradas pelo fluxo de assinatura, nunca por checkbox.
+ if exists(select 1 from public.posvenda_checklist
+   where id=p_requisito_id and requisito ilike '%Autentique%')
+ then raise exception 'Aprovação técnica deve ser confirmada pelo Autentique'; end if;
+ update public.posvenda_checklist set concluido=p_concluido,
+  concluido_em=case when p_concluido then now() else null end,
+  concluido_por=case when p_concluido then auth.uid() else null end
+ where id=p_requisito_id and pedido_id=p_pedido_id and etapa_nome=v_etapa;
+ if not found then raise exception 'Requisito não pertence à etapa atual'; end if;
+end $;
+
+create or replace function public.lifeup_concluir_etapa(p_pedido_id bigint)
+returns text language plpgsql security definer set search_path=public as $
+declare v_etapa text; v_proxima text; v_qtd integer; v_aprovados integer;
+begin
+ if not exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true)
+ then raise exception 'Acesso não autorizado'; end if;
+ select etapa_atual into v_etapa from public.posvenda_pedidos where id=p_pedido_id for update;
+ if v_etapa is null then raise exception 'Pedido não encontrado'; end if;
+ if v_etapa='Aprovação técnica' then
+  select count(*),count(*) filter(where aprovacao_tecnica_em is not null)
+   into v_qtd,v_aprovados from public.posvenda_ambientes where pedido_id=p_pedido_id;
+  if v_qtd=0 or v_qtd<>v_aprovados then
+   raise exception 'Aprovação formal pendente em um ou mais ambientes';
+  end if;
+ elsif exists(select 1 from public.posvenda_checklist
+    where pedido_id=p_pedido_id and etapa_nome=v_etapa and not concluido)
+ then raise exception 'Existem tarefas obrigatórias pendentes'; end if;
+ if v_etapa='Caderno técnico' then
+  raise exception 'O envio para aprovação depende do registro da revisão e do documento Autentique; não é possível concluir manualmente';
+ end if;
+ select e2.nome into v_proxima
+ from public.posvenda_etapas e1 join public.posvenda_etapas e2
+   on e2.ordem=(select min(e3.ordem) from public.posvenda_etapas e3
+                 where e3.ativo=true and e3.ordem>e1.ordem)
+ where e1.nome=v_etapa and e1.ativo=true;
+ if v_proxima is null then raise exception 'Não há próxima etapa cadastrada'; end if;
+ update public.posvenda_controle_etapas set concluido_em=now()
+ where pedido_id=p_pedido_id and etapa_nome=v_etapa;
+ perform set_config('lifeup.movimento_validado','sim',true);
+ update public.posvenda_pedidos set etapa_atual=v_proxima where id=p_pedido_id;
+ perform set_config('lifeup.movimento_validado','',true);
+ update public.posvenda_historico_etapas set movido_por=auth.uid(),observacao='Concluído pelo responsável'
+ where id=(select max(id) from public.posvenda_historico_etapas where pedido_id=p_pedido_id);
+ return v_proxima;
+end $;
+
+revoke all on function public.lifeup_marcar_requisito(bigint,bigint,boolean) from public,anon;
+revoke all on function public.lifeup_concluir_etapa(bigint) from public,anon;
+grant execute on function public.lifeup_marcar_requisito(bigint,bigint,boolean) to authenticated;
+grant execute on function public.lifeup_concluir_etapa(bigint) to authenticated;
+
 commit;
