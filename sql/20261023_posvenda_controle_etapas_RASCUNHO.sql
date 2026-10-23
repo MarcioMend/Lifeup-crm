@@ -1,0 +1,147 @@
+-- Life Up | Fluxo controlado de tarefas e SLA | RASCUNHO PARA HOMOLOGACAO
+-- NAO EXECUTAR EM PRODUCAO sem validar triggers, RLS e webhook existentes.
+-- Datas de etapas antigas sao inicializadas como NULL para evitar falsos atrasos.
+begin;
+
+create table if not exists public.posvenda_controle_etapas (
+  pedido_id bigint primary key references public.posvenda_pedidos(id) on delete cascade,
+  etapa_nome text not null,
+  iniciado_em timestamptz not null default now(),
+  responsavel text,
+  prazo_dias_uteis integer,
+  prazo_tipo text not null default 'interno'
+    check (prazo_tipo in ('interno','cliente','agendamento','por_ambiente')),
+  concluido_em timestamptz,
+  atualizado_em timestamptz not null default now()
+);
+
+create table if not exists public.posvenda_checklist (
+  id bigint generated always as identity primary key,
+  pedido_id bigint not null references public.posvenda_pedidos(id) on delete cascade,
+  etapa_nome text not null,
+  requisito text not null,
+  concluido boolean not null default false,
+  concluido_em timestamptz,
+  concluido_por uuid,
+  unique (pedido_id,etapa_nome,requisito)
+);
+
+create table if not exists public.posvenda_historico_etapas (
+  id bigint generated always as identity primary key,
+  pedido_id bigint not null references public.posvenda_pedidos(id) on delete cascade,
+  etapa_origem text,
+  etapa_destino text not null,
+  movido_em timestamptz not null default now(),
+  movido_por uuid,
+  observacao text
+);
+
+create or replace function public.lifeup_prazo_etapa(p_etapa text)
+returns table (dias_uteis integer, tipo text)
+language sql immutable as $$
+ select case p_etapa
+   when 'Contrato recebido' then 1
+   when 'Conferência de medidas' then 3
+   when 'Caderno técnico' then 5
+   when 'Programação de produção' then 2
+   when 'Em fabricação' then 35
+   when 'Conferência de qualidade' then 1
+   when 'Programação de entrega' then 2
+   when 'Montagem e finalização' then 5
+   else null end,
+ case
+   when p_etapa = 'Aprovação técnica' then 'cliente'
+   when p_etapa = 'Entrega dos móveis' then 'agendamento'
+   when p_etapa in ('Caderno técnico','Montagem e finalização') then 'por_ambiente'
+   else 'interno' end;
+$$;
+
+-- O registro da etapa é atualizado automaticamente inclusive pelo webhook.
+create or replace function public.lifeup_registrar_entrada_etapa()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_dias int; v_tipo text;
+begin
+ if tg_op='INSERT' or new.etapa_atual is distinct from old.etapa_atual then
+   select dias_uteis,tipo into v_dias,v_tipo from public.lifeup_prazo_etapa(new.etapa_atual);
+   insert into public.posvenda_controle_etapas
+     (pedido_id,etapa_nome,iniciado_em,responsavel,prazo_dias_uteis,prazo_tipo,concluido_em)
+   values (new.id,new.etapa_atual,now(),new.responsavel_posvenda,v_dias,v_tipo,null)
+   on conflict(pedido_id) do update set
+     etapa_nome=excluded.etapa_nome,iniciado_em=excluded.iniciado_em,
+     responsavel=excluded.responsavel,prazo_dias_uteis=excluded.prazo_dias_uteis,
+     prazo_tipo=excluded.prazo_tipo,concluido_em=null,atualizado_em=now();
+   insert into public.posvenda_historico_etapas(pedido_id,etapa_origem,etapa_destino,observacao)
+   values(new.id,case when tg_op='INSERT' then null else old.etapa_atual end,new.etapa_atual,'Entrada registrada automaticamente');
+ end if;
+ return new;
+end $$;
+
+drop trigger if exists trg_lifeup_registrar_entrada_etapa on public.posvenda_pedidos;
+create trigger trg_lifeup_registrar_entrada_etapa
+after insert or update of etapa_atual on public.posvenda_pedidos
+for each row execute function public.lifeup_registrar_entrada_etapa();
+
+-- Não altera retrospectivamente o horário de entrada dos pedidos existentes.
+insert into public.posvenda_controle_etapas
+ (pedido_id,etapa_nome,iniciado_em,responsavel,prazo_dias_uteis,prazo_tipo)
+select p.id,p.etapa_atual,p.created_at,p.responsavel_posvenda,s.dias_uteis,s.tipo
+from public.posvenda_pedidos p
+cross join lateral public.lifeup_prazo_etapa(p.etapa_atual) s
+on conflict(pedido_id) do nothing;
+
+-- A política de checklist é alimentada ao entrar em cada etapa.
+create or replace function public.lifeup_requisitos_etapa(p_etapa text)
+returns table(requisito text) language sql immutable as $$
+ select unnest(case p_etapa
+  when 'Contrato recebido' then array['Documentos de referência cadastrados','Responsável pela medição definido']
+  when 'Conferência de medidas' then array['Medição realizada','Medidas e observações registradas','Responsável pelo Caderno Técnico definido']
+  when 'Caderno técnico' then array['Caderno Técnico definitivo anexado por ambiente','Revisões identificadas e conferidas']
+  when 'Aprovação técnica' then array['Aprovação formal de todas as revisões confirmada pelo Autentique']
+  when 'Programação de produção' then array['Materiais e ferragens conferidos','Autorização formal de fabricação registrada']
+  when 'Em fabricação' then array['Fabricação de todos os ambientes concluída']
+  when 'Conferência de qualidade' then array['Checklist de qualidade concluído']
+  when 'Programação de entrega' then array['Data e logística confirmadas']
+  when 'Entrega dos móveis' then array['Entrega registrada']
+  when 'Montagem e finalização' then array['Montagem concluída em todos os ambientes','Conferência final realizada']
+  else array[]::text[] end);
+$$;
+
+create or replace function public.lifeup_criar_checklist_etapa()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+ if tg_op='INSERT' or new.etapa_atual is distinct from old.etapa_atual then
+  insert into public.posvenda_checklist(pedido_id,etapa_nome,requisito)
+  select new.id,new.etapa_atual,r.requisito from public.lifeup_requisitos_etapa(new.etapa_atual) r
+  on conflict do nothing;
+ end if;
+ return new;
+end $$;
+
+drop trigger if exists trg_lifeup_criar_checklist_etapa on public.posvenda_pedidos;
+create trigger trg_lifeup_criar_checklist_etapa
+after insert or update of etapa_atual on public.posvenda_pedidos
+for each row execute function public.lifeup_criar_checklist_etapa();
+
+insert into public.posvenda_checklist(pedido_id,etapa_nome,requisito)
+select p.id,p.etapa_atual,r.requisito
+from public.posvenda_pedidos p
+cross join lateral public.lifeup_requisitos_etapa(p.etapa_atual) r
+on conflict do nothing;
+
+-- Por segurança, novas tabelas não expõem gravação direta ao navegador.
+alter table public.posvenda_controle_etapas enable row level security;
+alter table public.posvenda_checklist enable row level security;
+alter table public.posvenda_historico_etapas enable row level security;
+revoke all on public.posvenda_controle_etapas,public.posvenda_checklist,public.posvenda_historico_etapas from anon,authenticated;
+grant select on public.posvenda_controle_etapas,public.posvenda_checklist,public.posvenda_historico_etapas to authenticated;
+drop policy if exists lifeup_admin_ler_controle on public.posvenda_controle_etapas;
+create policy lifeup_admin_ler_controle on public.posvenda_controle_etapas for select to authenticated using
+ (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
+drop policy if exists lifeup_admin_ler_checklist on public.posvenda_checklist;
+create policy lifeup_admin_ler_checklist on public.posvenda_checklist for select to authenticated using
+ (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
+drop policy if exists lifeup_admin_ler_historico on public.posvenda_historico_etapas;
+create policy lifeup_admin_ler_historico on public.posvenda_historico_etapas for select to authenticated using
+ (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
+
+commit;
