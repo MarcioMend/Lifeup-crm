@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const E = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  let pedidos=[], ambientes=[], etapas=[], visitas=[], admin=false;
+  let pedidos=[], ambientes=[], etapas=[], visitas=[], controles=[], checklists=[], admin=false;
   const $ = s => document.querySelector(s);
   const msg = (t,erro=false) => { const el=$('#pvMensagem'); if(el){el.textContent=t;el.className=erro?'pv-erro':'pv-info';} };
   const errorText = err => err?.message || 'Erro desconhecido';
@@ -13,7 +13,7 @@
     if(!nav || !main || $('#pvNav')) return;
     const b=document.createElement('button');b.id='pvNav';b.type='button';b.textContent='▤ Pós-Vendas';b.style.display='none';nav.appendChild(b);
     const section=document.createElement('section');section.id='posvenda';section.className='view';
-    section.innerHTML=`<div class="pv-header"><div><small>PRODUÇÃO • INSTALAÇÃO</small><h2>CRM Pós-Vendas</h2></div><div class="pv-actions"><button class="primary" id="pvNovoPedido">+ Novo pedido</button><button id="pvAtualizar" type="button">Atualizar</button></div></div><div id="pvMensagem" role="status"></div><div id="pvIndicadores" class="pv-indicadores"></div><div class="pv-toolbar"><input id="pvBusca" placeholder="Buscar pedido ou cliente" aria-label="Buscar pedido ou cliente"><span>Arraste os cartões para mudar a etapa</span></div><div id="pvBoard" class="pv-board"></div>`;
+    section.innerHTML=`<div class="pv-header"><div><small>PRODUÇÃO • INSTALAÇÃO</small><h2>CRM Pós-Vendas</h2></div><div class="pv-actions"><button class="primary" id="pvNovoPedido">+ Novo pedido</button><button id="pvAtualizar" type="button">Atualizar</button></div></div><div id="pvMensagem" role="status"></div><div id="pvIndicadores" class="pv-indicadores"></div><div class="pv-toolbar"><input id="pvBusca" placeholder="Buscar pedido ou cliente" aria-label="Buscar pedido ou cliente"><span>Abra o card para concluir as tarefas e avançar</span></div><div id="pvBoard" class="pv-board"></div>`;
     main.appendChild(section);
     b.addEventListener('click',async()=>{document.querySelectorAll('nav button,.view').forEach(x=>x.classList.remove('active'));b.classList.add('active');section.classList.add('active');$('#title').textContent='Pós-Vendas';const novo=$('#novo');if(novo)novo.style.display='none';await carregar();});
     document.querySelectorAll('aside nav button:not(#pvNav)').forEach(btn=>btn.addEventListener('click',()=>{const novo=$('#novo');if(novo)novo.style.display='';}));
@@ -37,12 +37,26 @@
       db.from('posvenda_etapas').select('id,ordem,nome,ativo').eq('ativo',true).order('ordem'),
       db.from('posvenda_pedidos').select('id,numero_pedido,nome_cliente,etapa_atual,responsavel_posvenda,observacoes,created_at').order('created_at',{ascending:false}),
       db.from('posvenda_ambientes').select('id,pedido_id,nome_ambiente,status_ambiente,previsao_fabricacao,prazo_fabricacao_dias_uteis,aprovacao_tecnica_em,arquivo_projeto_url'),
-      db.from('posvenda_visitas').select('id,pedido_id,ambiente_id,data_visita,tipo_visita,status_visita,responsavel_visita').order('data_visita',{ascending:true})
+      db.from('posvenda_visitas').select('id,pedido_id,ambiente_id,data_visita,tipo_visita,status_visita,responsavel_visita').order('data_visita',{ascending:true}),
+      db.from('posvenda_controle_etapas').select('pedido_id,etapa_nome,iniciado_em,prazo_dias_uteis,prazo_tipo,concluido_em'),
+      db.from('posvenda_checklist').select('id,pedido_id,etapa_nome,requisito,concluido')
     ]);
-    const falhas=rs.map((r,i)=>r.error?['etapas','pedidos','ambientes','visitas'][i]+': '+errorText(r.error):null).filter(Boolean);
-    [etapas,pedidos,ambientes,visitas]=rs.map(r=>r.data||[]);
+    const falhas=rs.map((r,i)=>r.error?['etapas','pedidos','ambientes','visitas','prazos','tarefas'][i]+': '+errorText(r.error):null).filter(Boolean);
+    [etapas,pedidos,ambientes,visitas,controles,checklists]=rs.map(r=>r.data||[]);
     render();
     msg(falhas.length?'Falha ao consultar '+falhas.join(' | '):'Dados atualizados.',!!falhas.length);
+  }
+  function prazoCard(p){
+    const c=controles.find(x=>x.pedido_id===p.id && x.etapa_nome===p.etapa_atual);
+    if(!c)return '<small>Prazo: aguardando configuração</small>';
+    if(c.prazo_tipo==='cliente')return '<small style="color:#876d2b">Aguardando cliente · sem SLA interno</small>';
+    if(c.prazo_tipo==='agendamento')return '<small>Prazo conforme agendamento</small>';
+    if(!c.prazo_dias_uteis||!c.iniciado_em)return '<small>Prazo não definido</small>';
+    const inicio=new Date(c.iniciado_em),hoje=new Date(),fim=new Date(inicio);
+    let dias=0;while(dias<c.prazo_dias_uteis){fim.setDate(fim.getDate()+1);if(fim.getDay()!==0&&fim.getDay()!==6)dias++;}
+    const ms=fim.getTime()-hoje.getTime(),restantes=Math.ceil(ms/86400000);
+    const atrasado=ms<0,alerta=!atrasado&&(c.prazo_tipo==='por_ambiente'?restantes<=2:restantes<=1);
+    return '<small style="font-weight:700;color:'+(atrasado?'#b42318':alerta?'#9a6700':'#27804a')+'">'+(atrasado?'● Atrasado':alerta?'● Prazo próximo':'● No prazo')+' · '+fim.toLocaleDateString('pt-BR')+(c.prazo_tipo==='por_ambiente'?' · prazo base por ambiente':'')+'</small>';
   }
   function render(){
     const q=($('#pvBusca')?.value||'').toLowerCase();
@@ -52,22 +66,13 @@
     $('#pvIndicadores').innerHTML=`<div><small>Pedidos</small><strong>${pedidos.length}</strong></div><div><small>Ambientes</small><strong>${ambientes.length}</strong></div><div><small>Previsões vencidas*</small><strong>${atrasados}</strong></div><div><small>Visitas</small><strong>${visitas.length}</strong></div>`;
     $('#pvBoard').innerHTML=etapas.length?etapas.map(e=>{
       const cards=filtrados.filter(p=>p.etapa_atual===e.nome);
-      return `<div class="pv-col" data-etapa="${E(e.nome)}"><div class="pv-col-title"><b>${E(e.nome)}</b><span>${cards.length}</span></div>${cards.map(p=>`<div class="pv-card" draggable="true" data-pedido="${p.id}" role="button" tabindex="0" title="Clique para editar o pedido"><strong>${E(p.nome_cliente||'Cliente não informado')}</strong><small>Pedido ${E(p.numero_pedido||p.id)}</small><small>${E(p.responsavel_posvenda||'Sem responsável')}</small><small>${ambientes.filter(a=>a.pedido_id===p.id).length} ambiente(s) · ${ambientes.filter(a=>a.pedido_id===p.id&&a.aprovacao_tecnica_em).length} aprovado(s)</small></div>`).join('')}</div>`;
+      return `<div class="pv-col" data-etapa="${E(e.nome)}"><div class="pv-col-title"><b>${E(e.nome)}</b><span>${cards.length}</span></div>${cards.map(p=>`<div class="pv-card" draggable="true" data-pedido="${p.id}" role="button" tabindex="0" title="Clique para editar o pedido"><strong>${E(p.nome_cliente||'Cliente não informado')}</strong><small>Pedido ${E(p.numero_pedido||p.id)}</small><small>${E(p.responsavel_posvenda||'Sem responsável')}</small><small>${ambientes.filter(a=>a.pedido_id===p.id).length} ambiente(s) · ${ambientes.filter(a=>a.pedido_id===p.id&&a.aprovacao_tecnica_em).length} aprovado(s)</small>${prazoCard(p)}</div>`).join('')}</div>`;
     }).join(''):'<p>Não há etapas disponíveis. Verifique as permissões de leitura de posvenda_etapas.</p>';
-    document.querySelectorAll('.pv-card').forEach(el=>el.ondragstart=e=>e.dataTransfer.setData('text/plain',el.dataset.pedido));
     document.querySelectorAll('.pv-card').forEach(el=>{
+      el.draggable=false;
       el.addEventListener('click',()=>editarPedido(Number(el.dataset.pedido)));
       el.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();editarPedido(Number(el.dataset.pedido));}});
     });
-    document.querySelectorAll('.pv-col').forEach(el=>{
-      el.ondragover=e=>e.preventDefault();
-      el.ondrop=async e=>{e.preventDefault();const id=Number(e.dataTransfer.getData('text/plain'));const p=pedidos.find(x=>x.id===id);if(!p||p.etapa_atual===el.dataset.etapa)return;
-        const antes=p.etapa_atual; p.etapa_atual=el.dataset.etapa;render();
-        const {error}=await db.from('posvenda_pedidos').update({etapa_atual:el.dataset.etapa}).eq('id',id);
-        if(error){p.etapa_atual=antes;render();msg('Não foi possível mover o pedido: '+errorText(error),true);}else{msg('Etapa atualizada.');await carregar();}
-      };
-    });
-
   }
   async function novoPedido(){
     const nome=prompt('Nome do cliente:');if(!nome?.trim())return;
@@ -181,7 +186,7 @@
           <label>Nome do cliente<input name="nome_cliente" required style="width:100%;padding:9px;box-sizing:border-box"></label>
           <label>Número do pedido<input name="numero_pedido" style="width:100%;padding:9px;box-sizing:border-box"></label>
           <label>Responsável pelo pós-vendas<input name="responsavel_posvenda" style="width:100%;padding:9px;box-sizing:border-box"></label>
-          <label>Etapa<select name="etapa_atual" style="width:100%;padding:9px;box-sizing:border-box"></select></label>
+          <label>Etapa atual (somente leitura)<select name="etapa_atual" disabled style="width:100%;padding:9px;box-sizing:border-box"></select></label><div id="pvTarefasPedido" style="border:1px solid #ddd;border-radius:9px;padding:12px"></div><button type="button" id="pvConcluirTarefa" class="primary">Concluir tarefa e avançar</button>
           <label>Observações<textarea name="observacoes" rows="4" style="width:100%;padding:9px;box-sizing:border-box"></textarea></label>
         </div></div><div id="pvTabAmbientes" hidden><h3>Ambientes deste pedido</h3><div id="pvAmbientesPedido"></div><button type="button" id="pvAddAmbiente">+ Adicionar ambiente</button></div><div id="pvTabVisitas" hidden><h3>Visitas deste pedido</h3><div id="pvVisitasPedido"></div><button type="button" id="pvAddVisita">+ Agendar visita</button></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px">
@@ -217,6 +222,21 @@
     const sel=form.elements.etapa_atual;
     sel.innerHTML=etapas.map(e=>`<option value="${E(e.nome)}">${E(e.nome)}</option>`).join('');
     sel.value=pedido.etapa_atual||etapas[0]?.nome||'';
+    const tarefas=checklists.filter(x=>x.pedido_id===id&&x.etapa_nome===pedido.etapa_atual);
+    const area=$('#pvTarefasPedido');
+    area.innerHTML='<b>Tarefas obrigatórias</b>'+(tarefas.length?tarefas.map(t=>'<label style="display:block;margin-top:9px"><input type="checkbox" data-tarefa="'+t.id+'" '+(t.concluido?'checked':'')+' '+(t.requisito.includes('Autentique')?'disabled':'')+'> '+E(t.requisito)+'</label>').join(''):'<p>Sem checklist disponível para esta etapa.</p>');
+    area.querySelectorAll('[data-tarefa]').forEach(input=>input.onchange=async()=>{
+      input.disabled=true;const {error}=await db.rpc('lifeup_marcar_requisito',{p_pedido_id:id,p_requisito_id:Number(input.dataset.tarefa),p_concluido:input.checked});
+      if(error){alert('Não foi possível registrar tarefa: '+errorText(error));input.checked=!input.checked;}
+      await carregar();input.disabled=false;
+    });
+    $('#pvConcluirTarefa').onclick=async()=>{
+      const botao=$('#pvConcluirTarefa');botao.disabled=true;
+      const {data,error}=await db.rpc('lifeup_concluir_etapa',{p_pedido_id:id});
+      botao.disabled=false;
+      if(error){alert('Não foi possível concluir: '+errorText(error));return;}
+      dlg.close();await carregar();msg('Etapa concluída. Próxima etapa: '+data);
+    };
     form.onsubmit=async ev=>{
       ev.preventDefault();
       const btn=$('#pvSalvarEdicao');
@@ -224,7 +244,6 @@
         nome_cliente:form.elements.nome_cliente.value.trim(),
         numero_pedido:form.elements.numero_pedido.value.trim()||null,
         responsavel_posvenda:form.elements.responsavel_posvenda.value.trim()||null,
-        etapa_atual:sel.value||null,
         observacoes:form.elements.observacoes.value.trim()||null
       };
       if(!payload.nome_cliente){msg('Informe o nome do cliente.',true);return;}
