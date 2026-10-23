@@ -121,3 +121,12 @@ Consulta fornecida pelo usuário: pedidos=6, ambientes=4, histórico de etapas=2
 
 ## Permissões da identificação de contratos (consulta confirmada)
 `posvenda_identificar_contrato` é SECURITY INVOKER (`false`), owner postgres, EXECUTE por anon=true, authenticated=true, service_role=true. Risco de exposição de metadados dos pedidos caso políticas RLS permitam leitura; a permissão EXECUTE sozinha não comprova vazamento. Proposta: restringir execução a service_role após auditar chamadores no webhook/frontend. Atenção: function SQL SECURITY INVOKER respeita permissões e RLS do invocador; testar com serviço. NÃO aplicar GRANT/REVOKE em produção antes de confirmar dependências.
+
+## Auditoria do código real da Edge Function autentique-webhook (fornecido pelo usuário)
+- Usa POST, AUTENTIQUE_WEBHOOK_SECRET, SUPABASE_URL e SERVICE_ROLE_KEY, valida header x-autentique-signature como hex SHA-256, HMAC do rawBody e comparação de tempo aproximadamente constante.
+- Aceita event.type=document.finished; outros eventos ignorados (recusa não processada aqui).
+- Persiste event.id em posvenda_eventos_autentique, detecta conflito/duplicidade por constraint 23505, retorna status processado/pendente_vinculo/erro.
+- Documento presente em posvenda_documentos segue fluxo de aprovação de revisão técnica via posvenda_aprovar_revisao_tecnica; se ausente, localiza contrato pelo autentique_document_id em posvenda_pedidos.
+- Regex do contrato **já aceita** MMYY-NNNN e formato antigo. Faz RPC posvenda_confirmar_contrato e não chama posvenda_identificar_contrato. A correção proposta para esta última é opcional para consumidores legados e **não desbloqueia o webhook atual**. NÃO executar o SQL rascunho por esse motivo sem necessidade confirmada.
+- Riscos para homologação: compatibilidade do header HMAC com provedor; eventos de recusa não tratados; concorrência de eventos duplicados; armazenamento do payload completo e retenção; conferir comportamento de 200 para pendente_vinculo; verificar autorização de fabricação e associação de documentos técnicos.
+- Prioridade revisada: construir fluxo de preparação e envio de contratos com vínculo persistido ANTES da assinatura, sem duplicar webhook.
