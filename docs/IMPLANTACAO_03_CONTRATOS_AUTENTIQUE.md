@@ -62,3 +62,8 @@ A função `posvenda_confirmar_contrato` é SECURITY INVOKER (`prosecdef=false`)
 - `posvenda_identificar_contrato(nome,ano)`: regex antiga de DDMM com letra opcional; valida dia e mês. **Não identifica MMYY-NNNN**. Risco de webhook não localizar contratos novos caso invoque essa função.
 - `posvenda_confirmar_contrato`: regex aceita antigo e novo, mas depende do pedido/documento já vinculados e da autenticação do chamador.
 - Antes de substituir `posvenda_identificar_contrato`, verificar chamadores, permissões e comportamento legado. Preservar compatibilidade com contratos antigos.
+
+## Sequência e restrições (consulta Supabase fornecida pelo usuário)
+- `lifeup_numero_pedido_seq` tem `start_value=100`. Isso não confirma o valor atual nem o próximo número.
+- Em `posvenda_pedidos`, consulta de constraints p/u retornou apenas `PRIMARY KEY (id)`, sem UNIQUE constraint para `numero_pedido`. Ainda podem existir índices únicos independentes; verificar `pg_indexes` antes de concluir ausência de proteção.
+- Antes de propor índice único, pesquisar números duplicados, índices existentes e tratamento de números nulos/legados. Não executar DDL em produção sem plano de migração.
