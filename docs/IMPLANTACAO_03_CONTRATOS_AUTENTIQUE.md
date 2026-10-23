@@ -53,3 +53,6 @@ FROM pg_proc p
 JOIN pg_namespace n ON n.oid=p.pronamespace
 WHERE n.nspname='public' AND p.proname='posvenda_confirmar_contrato';
 ```
+
+### Permissões verificadas pelo usuário
+A função `posvenda_confirmar_contrato` é SECURITY INVOKER (`prosecdef=false`), owner `postgres`, ACL explícita `postgres=X/postgres, service_role=X/postgres`. `anon` EXECUTE=false, `authenticated` EXECUTE=false, `service_role` EXECUTE=true. Nenhuma alteração de grants necessária neste momento. Ainda falta auditar autenticação e verificação criptográfica do webhook e vinculação de documento antes do envio.
