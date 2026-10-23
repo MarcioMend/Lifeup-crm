@@ -35,3 +35,21 @@ STATUS: levantamento e projeto técnico. NÃO IMPLANTAR SEM HOMOLOGAÇÃO.
 
 ## Próxima ação técnica
 Localizar implementação do webhook e geração/numeração de pedidos no Supabase; revisar interfaces e endpoints existentes; só então escrever a migração e a interface.
+
+## Inspeção da função existente (SQL fornecido em 23/10/2026)
+`public.posvenda_confirmar_contrato(bigint,text,text,integer)` é PL/pgSQL SECURITY INVOKER (não há SECURITY DEFINER), search_path vazio, com nomes de tabelas qualificados. Recebe pedido, documento, nome e ano; bloqueia pedido ausente, divergência de código/ano/cliente/ID, e exige etapa Aguardando assinatura. Após assinatura confirmada, retorna CONTRATO_RECEBIDO e atualiza contrato_assinado_em e etapa_atual; repetição retorna JA_PROCESSADO.
+
+Aceita nomes de contrato com código antigo DDMM opcionalmente com letra ou padrão MMYY-NNNN (quatro ou mais dígitos finais). A função NÃO valida assinatura junto ao Autentique; o chamador deve garantir autenticidade, evento assinado e autorização. Verificar grants EXECUTE em pg_proc e papéis que podem invocá-la. Verificar também se o webhook valida assinatura e evita replay. Nenhuma mudança de produção feita.
+
+### Diagnóstico seguinte (somente leitura)
+```sql
+SELECT p.proname, p.prosecdef AS security_definer,
+       p.proowner::regrole AS proprietario,
+       array_to_string(p.proacl, ', ') AS permissoes_explicitas,
+       has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_pode_executar,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') AS autenticado_pode_executar,
+       has_function_privilege('service_role', p.oid, 'EXECUTE') AS servico_pode_executar
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid=p.pronamespace
+WHERE n.nspname='public' AND p.proname='posvenda_confirmar_contrato';
+```
