@@ -115,3 +115,6 @@ ORDER BY tabela_referenciada::text, tabela_dependente::text;
 - revisoes_projeto <- revisoes_projeto (revisao_anterior_id), solicitacoes_alteracao (revisao_origem_id e revisao_destino_id), autorizacoes_fabricacao (revisao_id).
 - Todas as definições retornadas foram FOREIGN KEY simples sem ON DELETE CASCADE explícito. Não executar DELETE até inspecionar gatilhos de proteção, contagens, referências indiretas e Storage/Autentique.
 - Próxima ação: inventário agregado das tabelas ligadas aos seis pedidos. Evitar listar nomes de clientes ou documentos em relatórios desnecessários.
+
+## Inventário agregado dos seis pedidos de teste
+Consulta fornecida pelo usuário: pedidos=6, ambientes=4, histórico de etapas=21, documentos=0, visitas=0, revisões técnicas=0, autorizações de fabricação=0, solicitações de alteração=0, auditorias de aprovação=0. Total 31 registros nestas nove categorias. Os dados são testes conforme confirmação do usuário. Não inferir inexistência de arquivos no Storage nem documentos externos no Autentique. Antes de limpar, exportar pedidos/ambientes/histórico e conferir IDs e vínculos externos. Nenhum DELETE autorizado até homologação e aprovação explícita.
