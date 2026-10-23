@@ -84,7 +84,7 @@ for each row execute function public.lifeup_registrar_entrada_etapa();
 -- Não altera retrospectivamente o horário de entrada dos pedidos existentes.
 insert into public.posvenda_controle_etapas
  (pedido_id,etapa_nome,iniciado_em,responsavel,prazo_dias_uteis,prazo_tipo)
-select p.id,p.etapa_atual,p.created_at,p.responsavel_posvenda,s.dias_uteis,s.tipo
+select p.id,p.etapa_atual,now(),p.responsavel_posvenda,s.dias_uteis,s.tipo
 from public.posvenda_pedidos p
 cross join lateral public.lifeup_prazo_etapa(p.etapa_atual) s
 on conflict(pedido_id) do nothing;
@@ -145,13 +145,15 @@ create policy lifeup_admin_ler_historico on public.posvenda_historico_etapas for
  (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
 
 -- Controle de escrita: a interface não pode alterar a etapa diretamente.
+-- Pressupõe que a migração e a RPC SECURITY DEFINER pertençam a postgres;
+-- conferir owner em homologação antes de ativar.
 -- O service_role permanece autorizado para os webhooks existentes.
 create or replace function public.lifeup_bloquear_salto_etapa()
 returns trigger language plpgsql security invoker as $
 begin
  if new.etapa_atual is distinct from old.etapa_atual
     and auth.role() = 'authenticated'
-    and coalesce(current_setting('lifeup.movimento_validado',true),'') <> 'sim' then
+    and current_user <> 'postgres' then
   raise exception 'Conclua a tarefa da etapa antes de movimentar o pedido.';
  end if;
  return new;
@@ -210,9 +212,7 @@ begin
  if v_proxima is null then raise exception 'Não há próxima etapa cadastrada'; end if;
  update public.posvenda_controle_etapas set concluido_em=now()
  where pedido_id=p_pedido_id and etapa_nome=v_etapa;
- perform set_config('lifeup.movimento_validado','sim',true);
  update public.posvenda_pedidos set etapa_atual=v_proxima where id=p_pedido_id;
- perform set_config('lifeup.movimento_validado','',true);
  update public.posvenda_historico_etapas set movido_por=auth.uid(),observacao='Concluído pelo responsável'
  where id=(select max(id) from public.posvenda_historico_etapas where pedido_id=p_pedido_id);
  return v_proxima;
