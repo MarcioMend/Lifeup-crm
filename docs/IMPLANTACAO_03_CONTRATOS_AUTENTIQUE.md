@@ -56,3 +56,9 @@ WHERE n.nspname='public' AND p.proname='posvenda_confirmar_contrato';
 
 ### Permissões verificadas pelo usuário
 A função `posvenda_confirmar_contrato` é SECURITY INVOKER (`prosecdef=false`), owner `postgres`, ACL explícita `postgres=X/postgres, service_role=X/postgres`. `anon` EXECUTE=false, `authenticated` EXECUTE=false, `service_role` EXECUTE=true. Nenhuma alteração de grants necessária neste momento. Ainda falta auditar autenticação e verificação criptográfica do webhook e vinculação de documento antes do envio.
+
+## Diagnóstico confirmado: numeração versus identificação
+- `lifeup_gerar_numero_pedido()`: SECURITY DEFINER, usa `nextval('public.lifeup_numero_pedido_seq')` e prefixo MMYY em America/Sao_Paulo, formato `MMYY-NNNN`. Confirmar valor atual da sequência, ACL e unicidade em `posvenda_pedidos.numero_pedido`; não assumir início 0100 sem inspeção.
+- `posvenda_identificar_contrato(nome,ano)`: regex antiga de DDMM com letra opcional; valida dia e mês. **Não identifica MMYY-NNNN**. Risco de webhook não localizar contratos novos caso invoque essa função.
+- `posvenda_confirmar_contrato`: regex aceita antigo e novo, mas depende do pedido/documento já vinculados e da autenticação do chamador.
+- Antes de substituir `posvenda_identificar_contrato`, verificar chamadores, permissões e comportamento legado. Preservar compatibilidade com contratos antigos.
