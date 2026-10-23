@@ -75,3 +75,6 @@ A função `posvenda_confirmar_contrato` é SECURITY INVOKER (`prosecdef=false`)
 - `ux_posvenda_pedidos_crm_lead`: UNIQUE(crm_lead_id) WHERE não nulo.
 - Consulta de duplicidades de numero_pedido não retornou linhas.
 - Não criar índice redundante. Próxima verificação: distribuição de ano_pedido nulo e geração de pedidos por função/trigger, além de permissões da RPC geradora.
+
+## Auditoria dos dados existentes
+Consulta de 23/10/2026: 6 pedidos, todos numerados, 0 com ano_pedido nulo, 2 números novos MMYY-NNNN e 4 números legados. Preservar os dois formatos na identificação; sem necessidade de backfill do ano.
