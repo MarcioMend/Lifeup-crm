@@ -118,3 +118,6 @@ ORDER BY tabela_referenciada::text, tabela_dependente::text;
 
 ## Inventário agregado dos seis pedidos de teste
 Consulta fornecida pelo usuário: pedidos=6, ambientes=4, histórico de etapas=21, documentos=0, visitas=0, revisões técnicas=0, autorizações de fabricação=0, solicitações de alteração=0, auditorias de aprovação=0. Total 31 registros nestas nove categorias. Os dados são testes conforme confirmação do usuário. Não inferir inexistência de arquivos no Storage nem documentos externos no Autentique. Antes de limpar, exportar pedidos/ambientes/histórico e conferir IDs e vínculos externos. Nenhum DELETE autorizado até homologação e aprovação explícita.
+
+## Permissões da identificação de contratos (consulta confirmada)
+`posvenda_identificar_contrato` é SECURITY INVOKER (`false`), owner postgres, EXECUTE por anon=true, authenticated=true, service_role=true. Risco de exposição de metadados dos pedidos caso políticas RLS permitam leitura; a permissão EXECUTE sozinha não comprova vazamento. Proposta: restringir execução a service_role após auditar chamadores no webhook/frontend. Atenção: function SQL SECURITY INVOKER respeita permissões e RLS do invocador; testar com serviço. NÃO aplicar GRANT/REVOKE em produção antes de confirmar dependências.
