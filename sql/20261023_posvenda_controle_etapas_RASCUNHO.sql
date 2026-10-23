@@ -26,15 +26,8 @@ create table if not exists public.posvenda_checklist (
   unique (pedido_id,etapa_nome,requisito)
 );
 
-create table if not exists public.posvenda_historico_etapas (
-  id bigint generated always as identity primary key,
-  pedido_id bigint not null references public.posvenda_pedidos(id) on delete cascade,
-  etapa_origem text,
-  etapa_destino text not null,
-  movido_em timestamptz not null default now(),
-  movido_por uuid,
-  observacao text
-);
+-- Reutilizar public.posvenda_historico_etapas já existente.
+-- Colunas: id,pedido_id,etapa_anterior,etapa_nova,alterado_em,alterado_por.
 
 create or replace function public.lifeup_prazo_etapa(p_etapa text)
 returns table (dias_uteis integer, tipo text)
@@ -70,8 +63,8 @@ begin
      etapa_nome=excluded.etapa_nome,iniciado_em=excluded.iniciado_em,
      responsavel=excluded.responsavel,prazo_dias_uteis=excluded.prazo_dias_uteis,
      prazo_tipo=excluded.prazo_tipo,concluido_em=null,atualizado_em=now();
-   insert into public.posvenda_historico_etapas(pedido_id,etapa_origem,etapa_destino,observacao)
-   values(new.id,case when tg_op='INSERT' then null else old.etapa_atual end,new.etapa_atual,'Entrada registrada automaticamente');
+   -- O gatilho existente posvenda_registrar_mudanca_etapa grava o histórico.
+
  end if;
  return new;
 end $$;
@@ -131,19 +124,14 @@ on conflict do nothing;
 -- Por segurança, novas tabelas não expõem gravação direta ao navegador.
 alter table public.posvenda_controle_etapas enable row level security;
 alter table public.posvenda_checklist enable row level security;
-alter table public.posvenda_historico_etapas enable row level security;
-revoke all on public.posvenda_controle_etapas,public.posvenda_checklist,public.posvenda_historico_etapas from anon,authenticated;
-grant select on public.posvenda_controle_etapas,public.posvenda_checklist,public.posvenda_historico_etapas to authenticated;
+revoke all on public.posvenda_controle_etapas,public.posvenda_checklist from anon,authenticated;
+grant select on public.posvenda_controle_etapas,public.posvenda_checklist to authenticated;
 drop policy if exists lifeup_admin_ler_controle on public.posvenda_controle_etapas;
 create policy lifeup_admin_ler_controle on public.posvenda_controle_etapas for select to authenticated using
  (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
 drop policy if exists lifeup_admin_ler_checklist on public.posvenda_checklist;
 create policy lifeup_admin_ler_checklist on public.posvenda_checklist for select to authenticated using
  (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
-drop policy if exists lifeup_admin_ler_historico on public.posvenda_historico_etapas;
-create policy lifeup_admin_ler_historico on public.posvenda_historico_etapas for select to authenticated using
- (exists(select 1 from public.perfis where id=auth.uid() and tipo='administrador' and ativo=true));
-
 -- Controle de escrita: a interface não pode alterar a etapa diretamente.
 -- Pressupõe que a migração e a RPC SECURITY DEFINER pertençam a postgres;
 -- conferir owner em homologação antes de ativar.
@@ -213,8 +201,7 @@ begin
  update public.posvenda_controle_etapas set concluido_em=now()
  where pedido_id=p_pedido_id and etapa_nome=v_etapa;
  update public.posvenda_pedidos set etapa_atual=v_proxima where id=p_pedido_id;
- update public.posvenda_historico_etapas set movido_por=auth.uid(),observacao='Concluído pelo responsável'
- where id=(select max(id) from public.posvenda_historico_etapas where pedido_id=p_pedido_id);
+
  return v_proxima;
 end $;
 
