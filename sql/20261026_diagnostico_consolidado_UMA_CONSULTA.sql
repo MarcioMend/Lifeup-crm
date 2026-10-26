@@ -32,7 +32,7 @@ WITH colunas AS (
         OR tablename ILIKE '%orcamento%' OR tablename ILIKE '%proposta%')
 ), sequencia AS (
  SELECT schemaname, sequencename, start_value, min_value, max_value,
-        increment, cycle, cache_size, last_value
+        increment_by, cycle, cache_size, last_value
  FROM pg_sequences
  WHERE schemaname='public' AND sequencename='lifeup_numero_pedido_seq'
 )
